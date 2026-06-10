@@ -49,6 +49,7 @@ const DEFAULT_RED_SECONDS = 50
 const DEFAULT_GREEN_SECONDS = 40
 const DEFAULT_YELLOW_SECONDS = 3
 const ROUTE_SIGNAL_DISTANCE_METERS = 30
+const WALKING_SPEED_KMH = 4.8
 
 const currentLocationIcon = new L.Icon({
   iconUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon.png',
@@ -155,6 +156,10 @@ function formatSeconds(seconds: number) {
 
 function formatKm(meters: number) {
   return `${(meters / 1000).toFixed(2)}km`
+}
+
+function getWalkingDurationSeconds(distanceMetersValue: number) {
+  return (distanceMetersValue / 1000 / WALKING_SPEED_KMH) * 3600
 }
 
 function distanceMeters(a: Position, b: Position) {
@@ -481,6 +486,7 @@ function App() {
       }
 
       const route = data.routes[0]
+      const walkingDurationSeconds = getWalkingDurationSeconds(route.distance)
 
       const coordinates: Position[] = route.geometry.coordinates.map(([lng, lat]) => ({
         lat,
@@ -490,7 +496,7 @@ function App() {
       setRouteInfo({
         coordinates,
         distanceMeters: route.distance,
-        durationSeconds: route.duration,
+        durationSeconds: walkingDurationSeconds,
       })
     } catch (err) {
       console.error(err)
@@ -610,6 +616,7 @@ function App() {
           <section style={{ marginBottom: '12px', padding: '8px', border: '1px solid #ddd', borderRadius: '6px' }}>
             <div style={{ fontWeight: 'bold' }}>ルート情報</div>
             <div>距離: {formatKm(routeInfo.distanceMeters)}</div>
+            <div>徒歩速度: {WALKING_SPEED_KMH}km/h</div>
             <div>通常時間: {formatMinutes(routeInfo.durationSeconds)}</div>
             <div>ルート付近信号: {routeNearbySignals.length}個</div>
             <div>推定信号待ち: {formatSeconds(estimatedSignalDelaySeconds)}</div>
