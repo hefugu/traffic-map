@@ -15,6 +15,9 @@ type TrafficSignal = {
   lng: number
   type: SignalType
   source: string
+  redSeconds: number
+  greenSeconds: number
+  yellowSeconds: number
 }
 
 const currentLocationIcon = new L.Icon({
@@ -184,6 +187,9 @@ function App() {
               lng,
               type,
               source,
+              redSeconds: 50,
+              greenSeconds: 40,
+              yellowSeconds: 3,
             }
           })
           .filter((signal: TrafficSignal) => {
@@ -211,6 +217,23 @@ function App() {
   const bothCount = signals.filter((signal) => signal.type === 'both').length
   const crossingCount = signals.filter((signal) => signal.type === 'crossing').length
   const unknownCount = signals.filter((signal) => signal.type === 'unknown').length
+
+  const updateSignalSeconds = (
+    target: TrafficSignal,
+    key: 'redSeconds' | 'greenSeconds' | 'yellowSeconds',
+    value: number,
+  ) => {
+    setSignals((prev) =>
+      prev.map((signal) =>
+        signal.id === target.id && signal.type === target.type
+          ? {
+            ...signal,
+            [key]: value,
+          }
+          : signal,
+      ),
+    )
+  }
 
   if (errorMessage && !position) {
     return (
@@ -302,12 +325,46 @@ function App() {
             icon={getSignalIcon(signal.type)}
           >
             <Popup>
-              <div>
+              <div style={{ minWidth: '180px', fontFamily: 'sans-serif' }}>
                 <div>種類: {getSignalLabel(signal.type)}</div>
                 <div>信号ID: {signal.id}</div>
                 <div>取得元: {signal.source}</div>
-                <div>緯度: {signal.lat}</div>
-                <div>経度: {signal.lng}</div>
+
+                <label>
+                  赤 秒
+                  <input
+                    type="number"
+                    value={signal.redSeconds}
+                    onChange={(e) =>
+                      updateSignalSeconds(signal, 'redSeconds', Number(e.target.value))
+                    }
+                    style={{ width: '100%', boxSizing: 'border-box' }}
+                  />
+                </label>
+
+                <label>
+                  青 秒
+                  <input
+                    type="number"
+                    value={signal.greenSeconds}
+                    onChange={(e) =>
+                      updateSignalSeconds(signal, 'greenSeconds', Number(e.target.value))
+                    }
+                    style={{ width: '100%', boxSizing: 'border-box' }}
+                  />
+                </label>
+
+                <label>
+                  黄 秒
+                  <input
+                    type="number"
+                    value={signal.yellowSeconds}
+                    onChange={(e) =>
+                      updateSignalSeconds(signal, 'yellowSeconds', Number(e.target.value))
+                    }
+                    style={{ width: '100%', boxSizing: 'border-box' }}
+                  />
+                </label>
               </div>
             </Popup>
           </Marker>
