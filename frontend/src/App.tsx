@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { MapContainer, Marker, Popup, TileLayer, useMap } from 'react-leaflet'
+import { MapContainer, Marker, Polyline, Popup, TileLayer, useMap } from 'react-leaflet'
 import L from 'leaflet'
 
 import 'leaflet/dist/leaflet.css'
@@ -26,6 +26,22 @@ type NominatimResult = {
   display_name: string
   lat: string
   lon: string
+}
+
+type RouteInfo = {
+  coordinates: Position[]
+  distanceMeters: number
+  durationSeconds: number
+}
+
+type OsrmRouteResponse = {
+  routes?: Array<{
+    distance: number
+    duration: number
+    geometry: {
+      coordinates: Array<[number, number]>
+    }
+  }>
 }
 
 const currentLocationIcon = new L.Icon({
@@ -116,6 +132,14 @@ function getSignalLabel(type: SignalType) {
   return '不明'
 }
 
+function formatMinutes(seconds: number) {
+  return `${Math.round(seconds / 60)}分`
+}
+
+function formatKm(meters: number) {
+  return `${(meters / 1000).toFixed(2)}km`
+}
+
 function MapFocus({ center }: { center: Position | null }) {
   const map = useMap()
 
@@ -136,10 +160,12 @@ function App() {
   const [destinationQuery, setDestinationQuery] = useState<string>('')
 
   const [signals, setSignals] = useState<TrafficSignal[]>([])
+  const [routeInfo, setRouteInfo] = useState<RouteInfo | null>(null)
   const [errorMessage, setErrorMessage] = useState<string>('')
   const [loadingSignals, setLoadingSignals] = useState<boolean>(false)
   const [loadingStartSearch, setLoadingStartSearch] = useState<boolean>(false)
   const [loadingDestinationSearch, setLoadingDestinationSearch] = useState<boolean>(false)
+  const [loadingRoute, setLoadingRoute] = useState<boolean>(false)
 
   useEffect(() => {
     if (!navigator.geolocation) {
@@ -260,6 +286,10 @@ function App() {
     fetchSignals()
   }, [startPosition])
 
+  useEffect(() => {
+    setRouteInfo(null)
+  }, [startPosition, destinationPosition])
+
   const searchPlace = async (query: string): Promise<Position | null> => {
     const trimmedQuery = query.trim()
 
@@ -326,6 +356,55 @@ function App() {
     }
   }
 
+  const fetchShortestRoute = async () => {
+    if (!startPosition || !destinationPosition) {
+      setErrorMessage('出発地と目的地を設定してください。')
+      return
+    }
+
+    setLoadingRoute(true)
+    setErrorMessage('')
+
+    try {
+      const url =
+        `https://router.project-osrm.org/route/v1/foot/` +
+        `${startPosition.lng},${startPosition.lat};` +
+        `${destinationPosition.lng},${destinationPosition.lat}` +
+        '?overview=full&geometries=geojson'
+
+      const response = await fetch(url)
+
+      if (!response.ok) {
+        throw new Error(`OSRM API error: ${response.status}`)
+      }
+
+      const data = (await response.json()) as OsrmRouteResponse
+
+      if (!data.routes || data.routes.length === 0) {
+        setErrorMessage('ルートが見つかりませんでした。')
+        return
+      }
+
+      const route = data.routes[0]
+
+      const coordinates: Position[] = route.geometry.coordinates.map(([lng, lat]) => ({
+        lat,
+        lng,
+      }))
+
+      setRouteInfo({
+        coordinates,
+        distanceMeters: route.distance,
+        durationSeconds: route.duration,
+      })
+    } catch (err) {
+      console.error(err)
+      setErrorMessage('最短ルート取得に失敗しました。')
+    } finally {
+      setLoadingRoute(false)
+    }
+  }
+
   const useCurrentLocationAsStart = () => {
     if (!currentLocation) {
       setErrorMessage('現在地が取得できていません。')
@@ -370,7 +449,9 @@ function App() {
           zIndex: 1000,
           top: '12px',
           left: '12px',
-          width: '320px',
+          width: '340px',
+          maxHeight: 'calc(100vh - 24px)',
+          overflowY: 'auto',
           background: 'white',
           padding: '12px 16px',
           borderRadius: '8px',
@@ -423,6 +504,23 @@ function App() {
           </button>
         </div>
 
+        <button
+          onClick={fetchShortestRoute}
+          disabled={loadingRoute || !startPosition || !destinationPosition}
+          style={{ width: '100%', padding: '8px', marginBottom: '10px' }}
+        >
+          {loadingRoute ? 'ルート取得中...' : '最短ルート表示'}
+        </button>
+
+        {routeInfo && (
+          <div style={{ marginBottom: '10px', padding: '8px', border: '1px solid #ddd', borderRadius: '6px' }}>
+            <div style={{ fontWeight: 'bold' }}>最短ルート</div>
+            <div>距離: {formatKm(routeInfo.distanceMeters)}</div>
+            <div>時間: {formatMinutes(routeInfo.durationSeconds)}</div>
+            <div>座標点数: {routeInfo.coordinates.length}</div>
+          </div>
+        )}
+
         <div>信号取得半径: 出発地から700m</div>
         <div>総数: {signals.length}</div>
         <div>車両用: {vehicleCount}</div>
@@ -459,6 +557,7 @@ function App() {
         <div>通常青: GPS現在地</div>
         <div>緑: 出発地</div>
         <div>橙: 目的地</div>
+        <div>紺線: 最短ルート</div>
         <div>赤: 車両用信号</div>
         <div>青: 歩行者用信号</div>
         <div>紫: 両方</div>
@@ -470,6 +569,17 @@ function App() {
         <MapFocus center={startPosition ?? currentLocation} />
 
         <TileLayer attribution="&copy; OpenStreetMap contributors" url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" />
+
+        {routeInfo && (
+          <Polyline
+            positions={routeInfo.coordinates.map((point) => [point.lat, point.lng])}
+            pathOptions={{
+              color: '#1d4ed8',
+              weight: 6,
+              opacity: 0.85,
+            }}
+          />
+        )}
 
         {currentLocation && (
           <Marker position={[currentLocation.lat, currentLocation.lng]} icon={currentLocationIcon}>
@@ -492,10 +602,16 @@ function App() {
         {signals.map((signal) => (
           <Marker key={`${signal.type}-${signal.id}`} position={[signal.lat, signal.lng]} icon={getSignalIcon(signal.type)}>
             <Popup>
-              <div style={{ minWidth: '180px', fontFamily: 'sans-serif' }}>
+              <div style={{ minWidth: '190px', fontFamily: 'sans-serif' }}>
                 <div>種類: {getSignalLabel(signal.type)}</div>
                 <div>信号ID: {signal.id}</div>
                 <div>取得元: {signal.source}</div>
+                <div style={{ marginTop: '6px', fontWeight: 'bold' }}>
+                  周期: {signal.redSeconds + signal.greenSeconds + signal.yellowSeconds} 秒
+                </div>
+                <div>
+                  赤 {signal.redSeconds}s / 青 {signal.greenSeconds}s / 黄 {signal.yellowSeconds}s
+                </div>
 
                 <label>
                   赤 秒
