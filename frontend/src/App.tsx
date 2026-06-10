@@ -10,6 +10,7 @@ type Position = {
 }
 
 type SignalType = 'pedestrian' | 'vehicle' | 'both' | 'crossing' | 'unknown'
+type SignalState = 'red' | 'green' | 'yellow'
 
 type TrafficSignal = {
   id: number
@@ -43,6 +44,11 @@ type OsrmRouteResponse = {
     }
   }>
 }
+
+const DEFAULT_RED_SECONDS = 50
+const DEFAULT_GREEN_SECONDS = 40
+const DEFAULT_YELLOW_SECONDS = 3
+const ROUTE_SIGNAL_DISTANCE_METERS = 30
 
 const currentLocationIcon = new L.Icon({
   iconUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon.png',
@@ -132,6 +138,12 @@ function getSignalLabel(type: SignalType) {
   return '不明'
 }
 
+function getSignalStateLabel(state: SignalState) {
+  if (state === 'red') return '赤'
+  if (state === 'green') return '青'
+  return '黄'
+}
+
 function formatMinutes(seconds: number) {
   return `${Math.round(seconds / 60)}分`
 }
@@ -172,6 +184,46 @@ function distanceToRouteMeters(point: Position, route: Position[]) {
   return shortest
 }
 
+function getSignalOffsetSeconds(signal: TrafficSignal) {
+  return Math.abs(signal.id % 60)
+}
+
+function getSignalRuntime(signal: TrafficSignal, nowMs: number) {
+  const cycleSeconds = signal.redSeconds + signal.greenSeconds + signal.yellowSeconds
+  const elapsedSeconds = Math.floor(nowMs / 1000) + getSignalOffsetSeconds(signal)
+  const cyclePosition = ((elapsedSeconds % cycleSeconds) + cycleSeconds) % cycleSeconds
+
+  if (cyclePosition < signal.redSeconds) {
+    return {
+      state: 'red' as SignalState,
+      remainingSeconds: signal.redSeconds - cyclePosition,
+      cycleSeconds,
+    }
+  }
+
+  if (cyclePosition < signal.redSeconds + signal.greenSeconds) {
+    return {
+      state: 'green' as SignalState,
+      remainingSeconds: signal.redSeconds + signal.greenSeconds - cyclePosition,
+      cycleSeconds,
+    }
+  }
+
+  return {
+    state: 'yellow' as SignalState,
+    remainingSeconds: cycleSeconds - cyclePosition,
+    cycleSeconds,
+  }
+}
+
+function getEstimatedDelayForSignal(signal: TrafficSignal, nowMs: number) {
+  const runtime = getSignalRuntime(signal, nowMs)
+
+  if (runtime.state === 'red') return runtime.remainingSeconds
+  if (runtime.state === 'yellow') return signal.redSeconds * 0.5
+  return 0
+}
+
 function MapFocus({ center }: { center: Position | null }) {
   const map = useMap()
 
@@ -191,10 +243,7 @@ function App() {
   const [startQuery, setStartQuery] = useState<string>('')
   const [destinationQuery, setDestinationQuery] = useState<string>('')
 
-  const [averageRedSeconds, setAverageRedSeconds] = useState<number>(50)
-  const [averageGreenSeconds, setAverageGreenSeconds] = useState<number>(40)
-  const [averageYellowSeconds, setAverageYellowSeconds] = useState<number>(3)
-
+  const [nowMs, setNowMs] = useState<number>(Date.now())
   const [signals, setSignals] = useState<TrafficSignal[]>([])
   const [routeInfo, setRouteInfo] = useState<RouteInfo | null>(null)
   const [errorMessage, setErrorMessage] = useState<string>('')
@@ -202,6 +251,16 @@ function App() {
   const [loadingStartSearch, setLoadingStartSearch] = useState<boolean>(false)
   const [loadingDestinationSearch, setLoadingDestinationSearch] = useState<boolean>(false)
   const [loadingRoute, setLoadingRoute] = useState<boolean>(false)
+
+  useEffect(() => {
+    const intervalId = window.setInterval(() => {
+      setNowMs(Date.now())
+    }, 1000)
+
+    return () => {
+      window.clearInterval(intervalId)
+    }
+  }, [])
 
   useEffect(() => {
     if (!navigator.geolocation) {
@@ -297,9 +356,9 @@ function App() {
               lng,
               type,
               source,
-              redSeconds: averageRedSeconds,
-              greenSeconds: averageGreenSeconds,
-              yellowSeconds: averageYellowSeconds,
+              redSeconds: DEFAULT_RED_SECONDS,
+              greenSeconds: DEFAULT_GREEN_SECONDS,
+              yellowSeconds: DEFAULT_YELLOW_SECONDS,
             }
           })
           .filter((signal: TrafficSignal) => {
@@ -320,7 +379,7 @@ function App() {
     }
 
     fetchSignals()
-  }, [startPosition, averageRedSeconds, averageGreenSeconds, averageYellowSeconds])
+  }, [startPosition])
 
   useEffect(() => {
     setRouteInfo(null)
@@ -452,23 +511,6 @@ function App() {
     setErrorMessage('')
   }
 
-  const updateSignalSeconds = (
-    target: TrafficSignal,
-    key: 'redSeconds' | 'greenSeconds' | 'yellowSeconds',
-    value: number,
-  ) => {
-    setSignals((prev) =>
-      prev.map((signal) =>
-        signal.id === target.id && signal.type === target.type
-          ? {
-              ...signal,
-              [key]: value,
-            }
-          : signal,
-      ),
-    )
-  }
-
   const vehicleCount = signals.filter((signal) => signal.type === 'vehicle').length
   const pedestrianCount = signals.filter((signal) => signal.type === 'pedestrian').length
   const bothCount = signals.filter((signal) => signal.type === 'both').length
@@ -476,11 +518,11 @@ function App() {
   const unknownCount = signals.filter((signal) => signal.type === 'unknown').length
 
   const routeNearbySignals = routeInfo
-    ? signals.filter((signal) => distanceToRouteMeters(signal, routeInfo.coordinates) <= 30)
+    ? signals.filter((signal) => distanceToRouteMeters(signal, routeInfo.coordinates) <= ROUTE_SIGNAL_DISTANCE_METERS)
     : []
 
   const estimatedSignalDelaySeconds = routeNearbySignals.reduce((total, signal) => {
-    return total + signal.redSeconds * 0.5
+    return total + getEstimatedDelayForSignal(signal, nowMs)
   }, 0)
 
   const estimatedRouteSeconds = routeInfo ? routeInfo.durationSeconds + estimatedSignalDelaySeconds : 0
@@ -564,39 +606,6 @@ function App() {
           {loadingRoute ? 'ルート取得中...' : '最短ルート表示'}
         </button>
 
-        <section style={{ marginBottom: '12px', padding: '8px', border: '1px solid #ddd', borderRadius: '6px' }}>
-          <div style={{ fontWeight: 'bold' }}>信号平均設定</div>
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '6px', marginTop: '6px' }}>
-            <label>
-              赤
-              <input
-                type="number"
-                value={averageRedSeconds}
-                onChange={(e) => setAverageRedSeconds(Number(e.target.value))}
-                style={{ width: '100%', boxSizing: 'border-box' }}
-              />
-            </label>
-            <label>
-              青
-              <input
-                type="number"
-                value={averageGreenSeconds}
-                onChange={(e) => setAverageGreenSeconds(Number(e.target.value))}
-                style={{ width: '100%', boxSizing: 'border-box' }}
-              />
-            </label>
-            <label>
-              黄
-              <input
-                type="number"
-                value={averageYellowSeconds}
-                onChange={(e) => setAverageYellowSeconds(Number(e.target.value))}
-                style={{ width: '100%', boxSizing: 'border-box' }}
-              />
-            </label>
-          </div>
-        </section>
-
         {routeInfo && (
           <section style={{ marginBottom: '12px', padding: '8px', border: '1px solid #ddd', borderRadius: '6px' }}>
             <div style={{ fontWeight: 'bold' }}>ルート情報</div>
@@ -610,6 +619,8 @@ function App() {
 
         <section style={{ marginBottom: '12px', padding: '8px', border: '1px solid #ddd', borderRadius: '6px' }}>
           <div style={{ fontWeight: 'bold' }}>信号情報</div>
+          <div>周期: 赤{DEFAULT_RED_SECONDS}秒 / 青{DEFAULT_GREEN_SECONDS}秒 / 黄{DEFAULT_YELLOW_SECONDS}秒</div>
+          <div>状態: アプリ内シミュレーション</div>
           <div>取得半径: 出発地から700m</div>
           <div>総数: {signals.length}</div>
           <div>車両用: {vehicleCount}</div>
@@ -693,53 +704,28 @@ function App() {
           </Marker>
         )}
 
-        {signals.map((signal) => (
-          <Marker key={`${signal.type}-${signal.id}`} position={[signal.lat, signal.lng]} icon={getSignalIcon(signal.type)}>
-            <Popup>
-              <div style={{ minWidth: '190px', fontFamily: 'sans-serif' }}>
-                <div>種類: {getSignalLabel(signal.type)}</div>
-                <div>信号ID: {signal.id}</div>
-                <div>取得元: {signal.source}</div>
-                <div style={{ marginTop: '6px', fontWeight: 'bold' }}>
-                  周期: {signal.redSeconds + signal.greenSeconds + signal.yellowSeconds} 秒
+        {signals.map((signal) => {
+          const runtime = getSignalRuntime(signal, nowMs)
+
+          return (
+            <Marker key={`${signal.type}-${signal.id}`} position={[signal.lat, signal.lng]} icon={getSignalIcon(signal.type)}>
+              <Popup>
+                <div style={{ minWidth: '190px', fontFamily: 'sans-serif' }}>
+                  <div>種類: {getSignalLabel(signal.type)}</div>
+                  <div>信号ID: {signal.id}</div>
+                  <div>取得元: {signal.source}</div>
+                  <div style={{ marginTop: '6px', fontWeight: 'bold' }}>
+                    現在: {getSignalStateLabel(runtime.state)} / 残り {runtime.remainingSeconds}秒
+                  </div>
+                  <div>周期: {runtime.cycleSeconds}秒</div>
+                  <div>
+                    赤 {signal.redSeconds}s / 青 {signal.greenSeconds}s / 黄 {signal.yellowSeconds}s
+                  </div>
                 </div>
-                <div>
-                  赤 {signal.redSeconds}s / 青 {signal.greenSeconds}s / 黄 {signal.yellowSeconds}s
-                </div>
-
-                <label>
-                  赤 秒
-                  <input
-                    type="number"
-                    value={signal.redSeconds}
-                    onChange={(e) => updateSignalSeconds(signal, 'redSeconds', Number(e.target.value))}
-                    style={{ width: '100%', boxSizing: 'border-box' }}
-                  />
-                </label>
-
-                <label>
-                  青 秒
-                  <input
-                    type="number"
-                    value={signal.greenSeconds}
-                    onChange={(e) => updateSignalSeconds(signal, 'greenSeconds', Number(e.target.value))}
-                    style={{ width: '100%', boxSizing: 'border-box' }}
-                  />
-                </label>
-
-                <label>
-                  黄 秒
-                  <input
-                    type="number"
-                    value={signal.yellowSeconds}
-                    onChange={(e) => updateSignalSeconds(signal, 'yellowSeconds', Number(e.target.value))}
-                    style={{ width: '100%', boxSizing: 'border-box' }}
-                  />
-                </label>
-              </div>
-            </Popup>
-          </Marker>
-        ))}
+              </Popup>
+            </Marker>
+          )
+        })}
       </MapContainer>
     </div>
   )
