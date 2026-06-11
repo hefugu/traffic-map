@@ -33,6 +33,13 @@ type TrafficSignal = {
   yellowSeconds: number
 }
 
+type SignalGroup = {
+  id: string
+  lat: number
+  lng: number
+  signals: TrafficSignal[]
+}
+
 type NominatimResult = {
   display_name: string
   lat: string
@@ -54,6 +61,8 @@ type OsrmRouteResponse = {
     }
   }>
 }
+
+const SIGNAL_GROUP_DISTANCE_METERS = 18
 
 const currentLocationIcon = new L.Icon({
   iconUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon.png',
@@ -101,31 +110,64 @@ function getSignalTextColor(state: SignalState) {
   return '#ffffff'
 }
 
-function getSignalMarkerIcon(state: SignalState, remainingSeconds: number, isRouteNearby: boolean, showCountdown: boolean) {
-  const size = isRouteNearby ? 42 : 16
-  const fontSize = isRouteNearby ? 15 : 0
+function getSignalMarkerIcon(
+  state: SignalState,
+  remainingSeconds: number,
+  signalCount: number,
+  isRouteNearby: boolean,
+  showCountdown: boolean,
+) {
+  const size = isRouteNearby ? 44 : 18
+  const fontSize = isRouteNearby ? 14 : 0
   const borderWidth = isRouteNearby ? 4 : 2
   const label = showCountdown ? String(remainingSeconds) : ''
+  const badge = signalCount > 1 ? String(signalCount) : ''
 
   return L.divIcon({
     className: 'traffic-signal-countdown-marker',
     html: `
-      <div style="
-        width:${size}px;
-        height:${size}px;
-        border-radius:9999px;
-        background:${getSignalColor(state)};
-        color:${getSignalTextColor(state)};
-        border:${borderWidth}px solid white;
-        box-shadow:0 2px 8px rgba(0,0,0,0.35);
-        display:flex;
-        align-items:center;
-        justify-content:center;
-        font-weight:700;
-        font-size:${fontSize}px;
-        font-family:sans-serif;
-        line-height:1;
-      ">${label}</div>
+      <div style="position:relative;width:${size}px;height:${size}px;">
+        <div style="
+          width:${size}px;
+          height:${size}px;
+          border-radius:9999px;
+          background:${getSignalColor(state)};
+          color:${getSignalTextColor(state)};
+          border:${borderWidth}px solid white;
+          box-shadow:0 2px 8px rgba(0,0,0,0.35);
+          display:flex;
+          align-items:center;
+          justify-content:center;
+          font-weight:700;
+          font-size:${fontSize}px;
+          font-family:sans-serif;
+          line-height:1;
+          box-sizing:border-box;
+        ">${label}</div>
+        ${
+          badge
+            ? `<div style="
+                position:absolute;
+                right:-5px;
+                top:-5px;
+                min-width:16px;
+                height:16px;
+                padding:0 4px;
+                border-radius:9999px;
+                background:#111827;
+                color:white;
+                border:1px solid white;
+                font-size:10px;
+                font-weight:700;
+                font-family:sans-serif;
+                display:flex;
+                align-items:center;
+                justify-content:center;
+                box-sizing:border-box;
+              ">${badge}</div>`
+            : ''
+        }
+      </div>
     `,
     iconSize: [size, size],
     iconAnchor: [size / 2, size / 2],
@@ -171,6 +213,57 @@ function distanceToRouteMeters(point: Position, route: Position[]) {
   }
 
   return shortest
+}
+
+function createSignalGroups(signals: TrafficSignal[]) {
+  const groups: SignalGroup[] = []
+
+  for (const signal of signals) {
+    const nearestGroup = groups.find((group) => {
+      return distanceMeters(signal, { lat: group.lat, lng: group.lng }) <= SIGNAL_GROUP_DISTANCE_METERS
+    })
+
+    if (!nearestGroup) {
+      groups.push({
+        id: `${signal.type}-${signal.id}`,
+        lat: signal.lat,
+        lng: signal.lng,
+        signals: [signal],
+      })
+      continue
+    }
+
+    nearestGroup.signals.push(signal)
+    nearestGroup.lat = nearestGroup.signals.reduce((total, item) => total + item.lat, 0) / nearestGroup.signals.length
+    nearestGroup.lng = nearestGroup.signals.reduce((total, item) => total + item.lng, 0) / nearestGroup.signals.length
+  }
+
+  return groups
+}
+
+function getSignalTiming(signal: TrafficSignal) {
+  return {
+    redSeconds: signal.redSeconds,
+    greenSeconds: signal.greenSeconds,
+    yellowSeconds: signal.yellowSeconds,
+  }
+}
+
+function getGroupRuntime(group: SignalGroup, nowMs: number) {
+  const ranked = group.signals
+    .map((signal) => {
+      const runtime = getSignalRuntime(signal.id, getSignalTiming(signal), nowMs)
+      const delay = getEstimatedDelayForSignal(signal.id, getSignalTiming(signal), nowMs)
+
+      return {
+        signal,
+        runtime,
+        delay,
+      }
+    })
+    .sort((a, b) => b.delay - a.delay)
+
+  return ranked[0]
 }
 
 function MapFocus({ center }: { center: Position | null }) {
@@ -468,33 +561,24 @@ function App() {
   const crossingCount = signals.filter((signal) => signal.type === 'crossing').length
   const unknownCount = signals.filter((signal) => signal.type === 'unknown').length
 
-  const routeNearbySignals = routeInfo
-    ? signals.filter((signal) => distanceToRouteMeters(signal, routeInfo.coordinates) <= ROUTE_SIGNAL_DISTANCE_METERS)
+  const signalGroups = createSignalGroups(signals)
+  const routeNearbyGroups = routeInfo
+    ? signalGroups.filter((group) => distanceToRouteMeters({ lat: group.lat, lng: group.lng }, routeInfo.coordinates) <= ROUTE_SIGNAL_DISTANCE_METERS)
     : []
 
-  const routeNearbySignalKeys = new Set(routeNearbySignals.map((signal) => `${signal.type}-${signal.id}`))
+  const routeNearbyGroupIds = new Set(routeNearbyGroups.map((group) => group.id))
 
-  const estimatedSignalDelaySeconds = routeNearbySignals.reduce((total, signal) => {
-    return (
-      total +
-      getEstimatedDelayForSignal(
-        signal.id,
-        {
-          redSeconds: signal.redSeconds,
-          greenSeconds: signal.greenSeconds,
-          yellowSeconds: signal.yellowSeconds,
-        },
-        nowMs,
-      )
-    )
+  const estimatedSignalDelaySeconds = routeNearbyGroups.reduce((total, group) => {
+    const groupRuntime = getGroupRuntime(group, nowMs)
+    return total + groupRuntime.delay
   }, 0)
 
   const estimatedRouteSeconds = routeInfo ? routeInfo.durationSeconds + estimatedSignalDelaySeconds : 0
 
-  const visibleSignals = signals.filter((signal) => {
+  const visibleSignalGroups = signalGroups.filter((group) => {
     if (signalDisplayMode === 'all') return true
     if (!routeInfo) return false
-    return routeNearbySignalKeys.has(`${signal.type}-${signal.id}`)
+    return routeNearbyGroupIds.has(group.id)
   })
 
   const mapCenter = startPosition ?? currentLocation ?? { lat: 35.6812, lng: 139.7671 }
@@ -591,7 +675,7 @@ function App() {
             <div>距離: {formatKm(routeInfo.distanceMeters)}</div>
             <div>徒歩速度: {WALKING_SPEED_KMH}km/h</div>
             <div>通常時間: {formatMinutes(routeInfo.durationSeconds)}</div>
-            <div>ルート付近信号: {routeNearbySignals.length}個</div>
+            <div>ルート付近信号群: {routeNearbyGroups.length}個</div>
             <div>推定信号待ち: {formatSeconds(estimatedSignalDelaySeconds)}</div>
             <div style={{ fontWeight: 'bold' }}>信号込み: {formatMinutes(estimatedRouteSeconds)}</div>
           </section>
@@ -605,8 +689,10 @@ function App() {
           </div>
           <div>状態: アプリ内シミュレーション</div>
           <div>取得半径: 出発地から700m</div>
-          <div>表示中: {visibleSignals.length}</div>
-          <div>総数: {signals.length}</div>
+          <div>グループ化距離: {SIGNAL_GROUP_DISTANCE_METERS}m</div>
+          <div>表示中: {visibleSignalGroups.length}群</div>
+          <div>信号群: {signalGroups.length}</div>
+          <div>信号本数: {signals.length}</div>
           <div>車両用: {vehicleCount}</div>
           <div>歩行者用: {pedestrianCount}</div>
           <div>両方: {bothCount}</div>
@@ -647,8 +733,8 @@ function App() {
         <div>緑ピン: 出発地</div>
         <div>橙ピン: 目的地</div>
         <div>青線: 最短ルート</div>
-        <div>大きい信号丸: ルート付近・残り秒数</div>
-        <div>小さい信号丸: ルート外</div>
+        <div>大きい信号丸: ルート付近の信号群</div>
+        <div>右上数字: 含まれる信号数</div>
       </div>
 
       <MapContainer center={[mapCenter.lat, mapCenter.lng]} zoom={17} style={{ width: '100%', height: '100%' }}>
@@ -685,37 +771,43 @@ function App() {
           </Marker>
         )}
 
-        {visibleSignals.map((signal) => {
-          const signalTiming = {
-            redSeconds: signal.redSeconds,
-            greenSeconds: signal.greenSeconds,
-            yellowSeconds: signal.yellowSeconds,
-          }
-          const runtime = getSignalRuntime(signal.id, signalTiming, nowMs)
-          const signalKey = `${signal.type}-${signal.id}`
-          const isRouteNearby = routeNearbySignalKeys.has(signalKey)
+        {visibleSignalGroups.map((group) => {
+          const groupRuntime = getGroupRuntime(group, nowMs)
+          const isRouteNearby = routeNearbyGroupIds.has(group.id)
           const signalMarkerIcon = getSignalMarkerIcon(
-            runtime.state,
-            runtime.remainingSeconds,
+            groupRuntime.runtime.state,
+            groupRuntime.runtime.remainingSeconds,
+            group.signals.length,
             isRouteNearby,
             isRouteNearby,
           )
 
           return (
-            <Marker key={signalKey} position={[signal.lat, signal.lng]} icon={signalMarkerIcon}>
+            <Marker key={group.id} position={[group.lat, group.lng]} icon={signalMarkerIcon}>
               <Popup>
-                <div style={{ minWidth: '190px', fontFamily: 'sans-serif' }}>
-                  <div>種類: {getSignalLabel(signal.type)}</div>
-                  <div>信号ID: {signal.id}</div>
-                  <div>取得元: {signal.source}</div>
+                <div style={{ minWidth: '220px', fontFamily: 'sans-serif' }}>
+                  <div style={{ fontWeight: 'bold' }}>信号群</div>
+                  <div>含まれる信号: {group.signals.length}個</div>
                   <div style={{ marginTop: '6px', fontWeight: 'bold' }}>
-                    現在: {getSignalStateLabel(runtime.state)} / 残り {runtime.remainingSeconds}秒
+                    代表状態: {getSignalStateLabel(groupRuntime.runtime.state)} / 残り {groupRuntime.runtime.remainingSeconds}秒
                   </div>
-                  <div>周期: {runtime.cycleSeconds}秒</div>
-                  <div>
-                    赤 {signal.redSeconds}s / 青 {signal.greenSeconds}s / 黄 {signal.yellowSeconds}s
+                  <div>代表待ち: {formatSeconds(groupRuntime.delay)}</div>
+                  {isRouteNearby && <div style={{ marginTop: '6px', fontWeight: 'bold' }}>このルート付近の信号群</div>}
+
+                  <div style={{ marginTop: '8px', borderTop: '1px solid #ddd', paddingTop: '6px' }}>
+                    {group.signals.map((signal) => {
+                      const runtime = getSignalRuntime(signal.id, getSignalTiming(signal), nowMs)
+
+                      return (
+                        <div key={`${signal.type}-${signal.id}`} style={{ marginBottom: '6px' }}>
+                          <div>
+                            {getSignalLabel(signal.type)} / {getSignalStateLabel(runtime.state)} 残り{runtime.remainingSeconds}秒
+                          </div>
+                          <div style={{ fontSize: '11px', color: '#555' }}>ID: {signal.id}</div>
+                        </div>
+                      )
+                    })}
                   </div>
-                  {isRouteNearby && <div style={{ marginTop: '6px', fontWeight: 'bold' }}>このルート付近の信号</div>}
                 </div>
               </Popup>
             </Marker>
