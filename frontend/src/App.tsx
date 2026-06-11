@@ -3,6 +3,7 @@ import { MapContainer, Marker, Polyline, Popup, TileLayer, useMap } from 'react-
 import L from 'leaflet'
 
 import 'leaflet/dist/leaflet.css'
+import { fetchPedestrianRoute, type Position, type RouteInfo } from './routeService'
 import {
   DEFAULT_SIGNAL_TIMING,
   ROUTE_SIGNAL_DISTANCE_METERS,
@@ -10,14 +11,8 @@ import {
   getEstimatedDelayForSignal,
   getSignalRuntime,
   getSignalStateLabel,
-  getWalkingDurationSeconds,
   type SignalState,
 } from './signalTiming'
-
-type Position = {
-  lat: number
-  lng: number
-}
 
 type SignalType = 'pedestrian' | 'vehicle' | 'both' | 'crossing' | 'unknown'
 type SignalDisplayMode = 'routeOnly' | 'all'
@@ -44,22 +39,6 @@ type NominatimResult = {
   display_name: string
   lat: string
   lon: string
-}
-
-type RouteInfo = {
-  coordinates: Position[]
-  distanceMeters: number
-  durationSeconds: number
-}
-
-type OsrmRouteResponse = {
-  routes?: Array<{
-    distance: number
-    duration: number
-    geometry: {
-      coordinates: Array<[number, number]>
-    }
-  }>
 }
 
 const SIGNAL_GROUP_DISTANCE_METERS = 18
@@ -504,41 +483,11 @@ function App() {
     setErrorMessage('')
 
     try {
-      const url =
-        `https://router.project-osrm.org/route/v1/foot/` +
-        `${startPosition.lng},${startPosition.lat};` +
-        `${destinationPosition.lng},${destinationPosition.lat}` +
-        '?overview=full&geometries=geojson'
-
-      const response = await fetch(url)
-
-      if (!response.ok) {
-        throw new Error(`OSRM API error: ${response.status}`)
-      }
-
-      const data = (await response.json()) as OsrmRouteResponse
-
-      if (!data.routes || data.routes.length === 0) {
-        setErrorMessage('ルートが見つかりませんでした。')
-        return
-      }
-
-      const route = data.routes[0]
-      const walkingDurationSeconds = getWalkingDurationSeconds(route.distance)
-
-      const coordinates: Position[] = route.geometry.coordinates.map(([lng, lat]) => ({
-        lat,
-        lng,
-      }))
-
-      setRouteInfo({
-        coordinates,
-        distanceMeters: route.distance,
-        durationSeconds: walkingDurationSeconds,
-      })
+      const route = await fetchPedestrianRoute(startPosition, destinationPosition)
+      setRouteInfo(route)
     } catch (err) {
       console.error(err)
-      setErrorMessage('最短ルート取得に失敗しました。')
+      setErrorMessage('徒歩ルート取得に失敗しました。')
     } finally {
       setLoadingRoute(false)
     }
@@ -657,7 +606,7 @@ function App() {
             cursor: loadingRoute || !startPosition || !destinationPosition ? 'not-allowed' : 'pointer',
           }}
         >
-          {loadingRoute ? 'ルート取得中...' : '最短ルート表示'}
+          {loadingRoute ? 'ルート取得中...' : '徒歩ルート表示'}
         </button>
 
         <section style={{ marginBottom: '12px' }}>
@@ -672,12 +621,15 @@ function App() {
         {routeInfo && (
           <section style={{ marginBottom: '12px', padding: '8px', border: '1px solid #ddd', borderRadius: '6px' }}>
             <div style={{ fontWeight: 'bold' }}>ルート情報</div>
+            <div>取得: {routeInfo.provider}</div>
+            <div>方式: {routeInfo.profile}</div>
             <div>距離: {formatKm(routeInfo.distanceMeters)}</div>
             <div>徒歩速度: {WALKING_SPEED_KMH}km/h</div>
             <div>通常時間: {formatMinutes(routeInfo.durationSeconds)}</div>
             <div>ルート付近信号群: {routeNearbyGroups.length}個</div>
             <div>推定信号待ち: {formatSeconds(estimatedSignalDelaySeconds)}</div>
             <div style={{ fontWeight: 'bold' }}>信号込み: {formatMinutes(estimatedRouteSeconds)}</div>
+            <div style={{ marginTop: '6px', fontSize: '12px', color: '#666' }}>{routeInfo.note}</div>
           </section>
         )}
 
@@ -732,7 +684,7 @@ function App() {
         <div>青ピン: GPS現在地</div>
         <div>緑ピン: 出発地</div>
         <div>橙ピン: 目的地</div>
-        <div>青線: 最短ルート</div>
+        <div>青線: 徒歩ルート</div>
         <div>大きい信号丸: ルート付近の信号群</div>
         <div>右上数字: 含まれる信号数</div>
       </div>
