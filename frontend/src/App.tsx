@@ -20,6 +20,7 @@ type Position = {
 }
 
 type SignalType = 'pedestrian' | 'vehicle' | 'both' | 'crossing' | 'unknown'
+type SignalDisplayMode = 'routeOnly' | 'all'
 
 type TrafficSignal = {
   id: number
@@ -100,10 +101,11 @@ function getSignalTextColor(state: SignalState) {
   return '#ffffff'
 }
 
-function getSignalMarkerIcon(state: SignalState, remainingSeconds: number, isRouteNearby: boolean) {
-  const size = isRouteNearby ? 42 : 32
-  const fontSize = isRouteNearby ? 15 : 12
+function getSignalMarkerIcon(state: SignalState, remainingSeconds: number, isRouteNearby: boolean, showCountdown: boolean) {
+  const size = isRouteNearby ? 42 : 16
+  const fontSize = isRouteNearby ? 15 : 0
   const borderWidth = isRouteNearby ? 4 : 2
+  const label = showCountdown ? String(remainingSeconds) : ''
 
   return L.divIcon({
     className: 'traffic-signal-countdown-marker',
@@ -123,7 +125,7 @@ function getSignalMarkerIcon(state: SignalState, remainingSeconds: number, isRou
         font-size:${fontSize}px;
         font-family:sans-serif;
         line-height:1;
-      ">${remainingSeconds}</div>
+      ">${label}</div>
     `,
     iconSize: [size, size],
     iconAnchor: [size / 2, size / 2],
@@ -193,6 +195,7 @@ function App() {
   const [nowMs, setNowMs] = useState<number>(Date.now())
   const [signals, setSignals] = useState<TrafficSignal[]>([])
   const [routeInfo, setRouteInfo] = useState<RouteInfo | null>(null)
+  const [signalDisplayMode, setSignalDisplayMode] = useState<SignalDisplayMode>('routeOnly')
   const [errorMessage, setErrorMessage] = useState<string>('')
   const [loadingSignals, setLoadingSignals] = useState<boolean>(false)
   const [loadingStartSearch, setLoadingStartSearch] = useState<boolean>(false)
@@ -488,6 +491,12 @@ function App() {
 
   const estimatedRouteSeconds = routeInfo ? routeInfo.durationSeconds + estimatedSignalDelaySeconds : 0
 
+  const visibleSignals = signals.filter((signal) => {
+    if (signalDisplayMode === 'all') return true
+    if (!routeInfo) return false
+    return routeNearbySignalKeys.has(`${signal.type}-${signal.id}`)
+  })
+
   const mapCenter = startPosition ?? currentLocation ?? { lat: 35.6812, lng: 139.7671 }
 
   return (
@@ -567,6 +576,15 @@ function App() {
           {loadingRoute ? 'ルート取得中...' : '最短ルート表示'}
         </button>
 
+        <section style={{ marginBottom: '12px' }}>
+          <button
+            onClick={() => setSignalDisplayMode((prev) => (prev === 'routeOnly' ? 'all' : 'routeOnly'))}
+            style={{ width: '100%' }}
+          >
+            信号表示: {signalDisplayMode === 'routeOnly' ? 'ルート付近のみ' : '全信号'}
+          </button>
+        </section>
+
         {routeInfo && (
           <section style={{ marginBottom: '12px', padding: '8px', border: '1px solid #ddd', borderRadius: '6px' }}>
             <div style={{ fontWeight: 'bold' }}>ルート情報</div>
@@ -587,6 +605,7 @@ function App() {
           </div>
           <div>状態: アプリ内シミュレーション</div>
           <div>取得半径: 出発地から700m</div>
+          <div>表示中: {visibleSignals.length}</div>
           <div>総数: {signals.length}</div>
           <div>車両用: {vehicleCount}</div>
           <div>歩行者用: {pedestrianCount}</div>
@@ -628,8 +647,8 @@ function App() {
         <div>緑ピン: 出発地</div>
         <div>橙ピン: 目的地</div>
         <div>青線: 最短ルート</div>
-        <div>信号丸: 現在色と残り秒数</div>
-        <div>大きい信号丸: ルート付近</div>
+        <div>大きい信号丸: ルート付近・残り秒数</div>
+        <div>小さい信号丸: ルート外</div>
       </div>
 
       <MapContainer center={[mapCenter.lat, mapCenter.lng]} zoom={17} style={{ width: '100%', height: '100%' }}>
@@ -666,7 +685,7 @@ function App() {
           </Marker>
         )}
 
-        {signals.map((signal) => {
+        {visibleSignals.map((signal) => {
           const signalTiming = {
             redSeconds: signal.redSeconds,
             greenSeconds: signal.greenSeconds,
@@ -675,7 +694,12 @@ function App() {
           const runtime = getSignalRuntime(signal.id, signalTiming, nowMs)
           const signalKey = `${signal.type}-${signal.id}`
           const isRouteNearby = routeNearbySignalKeys.has(signalKey)
-          const signalMarkerIcon = getSignalMarkerIcon(runtime.state, runtime.remainingSeconds, isRouteNearby)
+          const signalMarkerIcon = getSignalMarkerIcon(
+            runtime.state,
+            runtime.remainingSeconds,
+            isRouteNearby,
+            isRouteNearby,
+          )
 
           return (
             <Marker key={signalKey} position={[signal.lat, signal.lng]} icon={signalMarkerIcon}>
