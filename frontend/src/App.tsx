@@ -3,6 +3,16 @@ import { MapContainer, Marker, Polyline, Popup, TileLayer, useMap } from 'react-
 import L from 'leaflet'
 
 import 'leaflet/dist/leaflet.css'
+import {
+  DEFAULT_SIGNAL_TIMING,
+  ROUTE_SIGNAL_DISTANCE_METERS,
+  WALKING_SPEED_KMH,
+  getEstimatedDelayForSignal,
+  getSignalRuntime,
+  getSignalStateLabel,
+  getWalkingDurationSeconds,
+  type SignalState,
+} from './signalTiming'
 
 type Position = {
   lat: number
@@ -10,7 +20,6 @@ type Position = {
 }
 
 type SignalType = 'pedestrian' | 'vehicle' | 'both' | 'crossing' | 'unknown'
-type SignalState = 'red' | 'green' | 'yellow'
 
 type TrafficSignal = {
   id: number
@@ -45,12 +54,6 @@ type OsrmRouteResponse = {
   }>
 }
 
-const DEFAULT_RED_SECONDS = 50
-const DEFAULT_GREEN_SECONDS = 40
-const DEFAULT_YELLOW_SECONDS = 3
-const ROUTE_SIGNAL_DISTANCE_METERS = 30
-const WALKING_SPEED_KMH = 4.8
-
 const currentLocationIcon = new L.Icon({
   iconUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon.png',
   shadowUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-shadow.png',
@@ -78,59 +81,6 @@ const destinationIcon = new L.Icon({
   shadowSize: [41, 41],
 })
 
-const vehicleSignalIcon = new L.Icon({
-  iconUrl: 'https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-red.png',
-  shadowUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-shadow.png',
-  iconSize: [25, 41],
-  iconAnchor: [12, 41],
-  popupAnchor: [1, -34],
-  shadowSize: [41, 41],
-})
-
-const pedestrianSignalIcon = new L.Icon({
-  iconUrl: 'https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-blue.png',
-  shadowUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-shadow.png',
-  iconSize: [25, 41],
-  iconAnchor: [12, 41],
-  popupAnchor: [1, -34],
-  shadowSize: [41, 41],
-})
-
-const bothSignalIcon = new L.Icon({
-  iconUrl: 'https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-violet.png',
-  shadowUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-shadow.png',
-  iconSize: [25, 41],
-  iconAnchor: [12, 41],
-  popupAnchor: [1, -34],
-  shadowSize: [41, 41],
-})
-
-const crossingIcon = new L.Icon({
-  iconUrl: 'https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-grey.png',
-  shadowUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-shadow.png',
-  iconSize: [25, 41],
-  iconAnchor: [12, 41],
-  popupAnchor: [1, -34],
-  shadowSize: [41, 41],
-})
-
-const unknownIcon = new L.Icon({
-  iconUrl: 'https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-black.png',
-  shadowUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-shadow.png',
-  iconSize: [25, 41],
-  iconAnchor: [12, 41],
-  popupAnchor: [1, -34],
-  shadowSize: [41, 41],
-})
-
-function getSignalIcon(type: SignalType) {
-  if (type === 'vehicle') return vehicleSignalIcon
-  if (type === 'pedestrian') return pedestrianSignalIcon
-  if (type === 'both') return bothSignalIcon
-  if (type === 'crossing') return crossingIcon
-  return unknownIcon
-}
-
 function getSignalLabel(type: SignalType) {
   if (type === 'vehicle') return '車両用信号'
   if (type === 'pedestrian') return '歩行者用信号'
@@ -139,10 +89,46 @@ function getSignalLabel(type: SignalType) {
   return '不明'
 }
 
-function getSignalStateLabel(state: SignalState) {
-  if (state === 'red') return '赤'
-  if (state === 'green') return '青'
-  return '黄'
+function getSignalColor(state: SignalState) {
+  if (state === 'red') return '#dc2626'
+  if (state === 'green') return '#16a34a'
+  return '#facc15'
+}
+
+function getSignalTextColor(state: SignalState) {
+  if (state === 'yellow') return '#111827'
+  return '#ffffff'
+}
+
+function getSignalMarkerIcon(state: SignalState, remainingSeconds: number, isRouteNearby: boolean) {
+  const size = isRouteNearby ? 42 : 32
+  const fontSize = isRouteNearby ? 15 : 12
+  const borderWidth = isRouteNearby ? 4 : 2
+
+  return L.divIcon({
+    className: 'traffic-signal-countdown-marker',
+    html: `
+      <div style="
+        width:${size}px;
+        height:${size}px;
+        border-radius:9999px;
+        background:${getSignalColor(state)};
+        color:${getSignalTextColor(state)};
+        border:${borderWidth}px solid white;
+        box-shadow:0 2px 8px rgba(0,0,0,0.35);
+        display:flex;
+        align-items:center;
+        justify-content:center;
+        font-weight:700;
+        font-size:${fontSize}px;
+        font-family:sans-serif;
+        line-height:1;
+      ">${remainingSeconds}</div>
+    `,
+    iconSize: [size, size],
+    iconAnchor: [size / 2, size / 2],
+    popupAnchor: [0, -size / 2],
+  })
 }
 
 function formatMinutes(seconds: number) {
@@ -156,10 +142,6 @@ function formatSeconds(seconds: number) {
 
 function formatKm(meters: number) {
   return `${(meters / 1000).toFixed(2)}km`
-}
-
-function getWalkingDurationSeconds(distanceMetersValue: number) {
-  return (distanceMetersValue / 1000 / WALKING_SPEED_KMH) * 3600
 }
 
 function distanceMeters(a: Position, b: Position) {
@@ -187,46 +169,6 @@ function distanceToRouteMeters(point: Position, route: Position[]) {
   }
 
   return shortest
-}
-
-function getSignalOffsetSeconds(signal: TrafficSignal) {
-  return Math.abs(signal.id % 60)
-}
-
-function getSignalRuntime(signal: TrafficSignal, nowMs: number) {
-  const cycleSeconds = signal.redSeconds + signal.greenSeconds + signal.yellowSeconds
-  const elapsedSeconds = Math.floor(nowMs / 1000) + getSignalOffsetSeconds(signal)
-  const cyclePosition = ((elapsedSeconds % cycleSeconds) + cycleSeconds) % cycleSeconds
-
-  if (cyclePosition < signal.redSeconds) {
-    return {
-      state: 'red' as SignalState,
-      remainingSeconds: signal.redSeconds - cyclePosition,
-      cycleSeconds,
-    }
-  }
-
-  if (cyclePosition < signal.redSeconds + signal.greenSeconds) {
-    return {
-      state: 'green' as SignalState,
-      remainingSeconds: signal.redSeconds + signal.greenSeconds - cyclePosition,
-      cycleSeconds,
-    }
-  }
-
-  return {
-    state: 'yellow' as SignalState,
-    remainingSeconds: cycleSeconds - cyclePosition,
-    cycleSeconds,
-  }
-}
-
-function getEstimatedDelayForSignal(signal: TrafficSignal, nowMs: number) {
-  const runtime = getSignalRuntime(signal, nowMs)
-
-  if (runtime.state === 'red') return runtime.remainingSeconds
-  if (runtime.state === 'yellow') return signal.redSeconds * 0.5
-  return 0
 }
 
 function MapFocus({ center }: { center: Position | null }) {
@@ -361,9 +303,9 @@ function App() {
               lng,
               type,
               source,
-              redSeconds: DEFAULT_RED_SECONDS,
-              greenSeconds: DEFAULT_GREEN_SECONDS,
-              yellowSeconds: DEFAULT_YELLOW_SECONDS,
+              redSeconds: DEFAULT_SIGNAL_TIMING.redSeconds,
+              greenSeconds: DEFAULT_SIGNAL_TIMING.greenSeconds,
+              yellowSeconds: DEFAULT_SIGNAL_TIMING.yellowSeconds,
             }
           })
           .filter((signal: TrafficSignal) => {
@@ -527,8 +469,21 @@ function App() {
     ? signals.filter((signal) => distanceToRouteMeters(signal, routeInfo.coordinates) <= ROUTE_SIGNAL_DISTANCE_METERS)
     : []
 
+  const routeNearbySignalKeys = new Set(routeNearbySignals.map((signal) => `${signal.type}-${signal.id}`))
+
   const estimatedSignalDelaySeconds = routeNearbySignals.reduce((total, signal) => {
-    return total + getEstimatedDelayForSignal(signal, nowMs)
+    return (
+      total +
+      getEstimatedDelayForSignal(
+        signal.id,
+        {
+          redSeconds: signal.redSeconds,
+          greenSeconds: signal.greenSeconds,
+          yellowSeconds: signal.yellowSeconds,
+        },
+        nowMs,
+      )
+    )
   }, 0)
 
   const estimatedRouteSeconds = routeInfo ? routeInfo.durationSeconds + estimatedSignalDelaySeconds : 0
@@ -626,7 +581,10 @@ function App() {
 
         <section style={{ marginBottom: '12px', padding: '8px', border: '1px solid #ddd', borderRadius: '6px' }}>
           <div style={{ fontWeight: 'bold' }}>信号情報</div>
-          <div>周期: 赤{DEFAULT_RED_SECONDS}秒 / 青{DEFAULT_GREEN_SECONDS}秒 / 黄{DEFAULT_YELLOW_SECONDS}秒</div>
+          <div>
+            周期: 赤{DEFAULT_SIGNAL_TIMING.redSeconds}秒 / 青{DEFAULT_SIGNAL_TIMING.greenSeconds}秒 / 黄
+            {DEFAULT_SIGNAL_TIMING.yellowSeconds}秒
+          </div>
           <div>状態: アプリ内シミュレーション</div>
           <div>取得半径: 出発地から700m</div>
           <div>総数: {signals.length}</div>
@@ -670,11 +628,8 @@ function App() {
         <div>緑ピン: 出発地</div>
         <div>橙ピン: 目的地</div>
         <div>青線: 最短ルート</div>
-        <div>赤: 車両用信号</div>
-        <div>青: 歩行者用信号</div>
-        <div>紫: 両方</div>
-        <div>灰: 横断歩道</div>
-        <div>黒: 不明</div>
+        <div>信号丸: 現在色と残り秒数</div>
+        <div>大きい信号丸: ルート付近</div>
       </div>
 
       <MapContainer center={[mapCenter.lat, mapCenter.lng]} zoom={17} style={{ width: '100%', height: '100%' }}>
@@ -712,10 +667,18 @@ function App() {
         )}
 
         {signals.map((signal) => {
-          const runtime = getSignalRuntime(signal, nowMs)
+          const signalTiming = {
+            redSeconds: signal.redSeconds,
+            greenSeconds: signal.greenSeconds,
+            yellowSeconds: signal.yellowSeconds,
+          }
+          const runtime = getSignalRuntime(signal.id, signalTiming, nowMs)
+          const signalKey = `${signal.type}-${signal.id}`
+          const isRouteNearby = routeNearbySignalKeys.has(signalKey)
+          const signalMarkerIcon = getSignalMarkerIcon(runtime.state, runtime.remainingSeconds, isRouteNearby)
 
           return (
-            <Marker key={`${signal.type}-${signal.id}`} position={[signal.lat, signal.lng]} icon={getSignalIcon(signal.type)}>
+            <Marker key={signalKey} position={[signal.lat, signal.lng]} icon={signalMarkerIcon}>
               <Popup>
                 <div style={{ minWidth: '190px', fontFamily: 'sans-serif' }}>
                   <div>種類: {getSignalLabel(signal.type)}</div>
@@ -728,6 +691,7 @@ function App() {
                   <div>
                     赤 {signal.redSeconds}s / 青 {signal.greenSeconds}s / 黄 {signal.yellowSeconds}s
                   </div>
+                  {isRouteNearby && <div style={{ marginTop: '6px', fontWeight: 'bold' }}>このルート付近の信号</div>}
                 </div>
               </Popup>
             </Marker>
