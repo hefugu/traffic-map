@@ -1,64 +1,128 @@
-export type SignalState = 'red' | 'green' | 'yellow'
+import { MEASURED_SIGNAL_PROFILES, type MeasuredSignalProfile } from './measuredSignalTimings'
 
 export type SignalTiming = {
-  redSeconds: number
+  cycleSeconds: number
   greenSeconds: number
-  yellowSeconds: number
+  blinkSeconds: number
 }
 
-export const DEFAULT_SIGNAL_TIMING: SignalTiming = {
-  redSeconds: 50,
-  greenSeconds: 40,
-  yellowSeconds: 3,
+export type SignalTimingSource = 'measured' | 'measured-average' | 'no-pedestrian-crossing'
+
+export type ResolvedSignalTiming = {
+  timing: SignalTiming
+  source: SignalTimingSource
+  label: string
+  sourceUrl?: string
+  noPedestrianCrossing: boolean
+  matchDistanceMeters?: number
 }
 
 export const ROUTE_SIGNAL_DISTANCE_METERS = 30
 export const WALKING_SPEED_KMH = 4.8
+export const MEASURED_SIGNAL_MATCH_DISTANCE_METERS = 85
 
-export function getSignalStateLabel(state: SignalState) {
-  if (state === 'red') return '赤'
-  if (state === 'green') return '青'
-  return '黄'
+function average(values: number[]) {
+  return values.reduce((total, value) => total + value, 0) / values.length
 }
 
-export function getSignalOffsetSeconds(signalId: number) {
-  return Math.abs(signalId % 60)
+function getRepresentativeTiming(profile: MeasuredSignalProfile): SignalTiming | null {
+  if (profile.crossings.length === 0) return null
+  return {
+    cycleSeconds: profile.cycleSeconds,
+    greenSeconds: average(profile.crossings.map((crossing) => crossing.greenSeconds)),
+    blinkSeconds: average(profile.crossings.map((crossing) => crossing.blinkSeconds)),
+  }
 }
 
-export function getSignalRuntime(signalId: number, timing: SignalTiming, nowMs: number) {
-  const cycleSeconds = timing.redSeconds + timing.greenSeconds + timing.yellowSeconds
-  const elapsedSeconds = Math.floor(nowMs / 1000) + getSignalOffsetSeconds(signalId)
-  const cyclePosition = ((elapsedSeconds % cycleSeconds) + cycleSeconds) % cycleSeconds
+const profilesForAverage = MEASURED_SIGNAL_PROFILES.filter((profile) => profile.crossings.length > 0)
 
-  if (cyclePosition < timing.redSeconds) {
+// Each intersection gets equal weight. This avoids intersections with many recorded
+// crossing directions dominating the fallback value.
+export const DEFAULT_SIGNAL_TIMING: SignalTiming = {
+  cycleSeconds: Math.round(average(profilesForAverage.map((profile) => profile.cycleSeconds))),
+  greenSeconds: Math.round(
+    average(
+      profilesForAverage.map(
+        (profile) => getRepresentativeTiming(profile)?.greenSeconds ?? 0,
+      ),
+    ),
+  ),
+  blinkSeconds: Math.round(
+    average(
+      profilesForAverage.map(
+        (profile) => getRepresentativeTiming(profile)?.blinkSeconds ?? 0,
+      ),
+    ),
+  ),
+}
+
+function distanceMeters(lat1: number, lng1: number, lat2: number, lng2: number) {
+  const earthRadius = 6371000
+  const phi1 = (lat1 * Math.PI) / 180
+  const phi2 = (lat2 * Math.PI) / 180
+  const deltaPhi = ((lat2 - lat1) * Math.PI) / 180
+  const deltaLambda = ((lng2 - lng1) * Math.PI) / 180
+  const h =
+    Math.sin(deltaPhi / 2) * Math.sin(deltaPhi / 2) +
+    Math.cos(phi1) * Math.cos(phi2) * Math.sin(deltaLambda / 2) * Math.sin(deltaLambda / 2)
+  return 2 * earthRadius * Math.atan2(Math.sqrt(h), Math.sqrt(1 - h))
+}
+
+export function resolveSignalTiming(lat: number, lng: number): ResolvedSignalTiming {
+  const nearest = MEASURED_SIGNAL_PROFILES
+    .filter((profile) => typeof profile.lat === 'number' && typeof profile.lng === 'number')
+    .map((profile) => ({
+      profile,
+      distance: distanceMeters(lat, lng, profile.lat as number, profile.lng as number),
+    }))
+    .filter((candidate) => candidate.distance <= MEASURED_SIGNAL_MATCH_DISTANCE_METERS)
+    .sort((a, b) => a.distance - b.distance)[0]
+
+  if (!nearest) {
     return {
-      state: 'red' as SignalState,
-      remainingSeconds: timing.redSeconds - cyclePosition,
-      cycleSeconds,
+      timing: DEFAULT_SIGNAL_TIMING,
+      source: 'measured-average',
+      label: '江東区実測データ平均',
+      noPedestrianCrossing: false,
     }
   }
 
-  if (cyclePosition < timing.redSeconds + timing.greenSeconds) {
+  if (nearest.profile.noPedestrianCrossing || nearest.profile.crossings.length === 0) {
     return {
-      state: 'green' as SignalState,
-      remainingSeconds: timing.redSeconds + timing.greenSeconds - cyclePosition,
-      cycleSeconds,
+      timing: {
+        cycleSeconds: nearest.profile.cycleSeconds,
+        greenSeconds: 0,
+        blinkSeconds: 0,
+      },
+      source: 'no-pedestrian-crossing',
+      label: `${nearest.profile.name}（横断歩道なし）`,
+      sourceUrl: nearest.profile.sourceUrl,
+      noPedestrianCrossing: true,
+      matchDistanceMeters: nearest.distance,
     }
   }
 
   return {
-    state: 'yellow' as SignalState,
-    remainingSeconds: cycleSeconds - cyclePosition,
-    cycleSeconds,
+    timing: getRepresentativeTiming(nearest.profile) ?? DEFAULT_SIGNAL_TIMING,
+    source: 'measured',
+    label: `${nearest.profile.name} 実測`,
+    sourceUrl: nearest.profile.sourceUrl,
+    noPedestrianCrossing: false,
+    matchDistanceMeters: nearest.distance,
   }
 }
 
-export function getEstimatedDelayForSignal(signalId: number, timing: SignalTiming, nowMs: number) {
-  const runtime = getSignalRuntime(signalId, timing, nowMs)
+export function getSignalRedSeconds(timing: SignalTiming) {
+  return Math.max(0, timing.cycleSeconds - timing.greenSeconds - timing.blinkSeconds)
+}
 
-  if (runtime.state === 'red') return runtime.remainingSeconds
-  if (runtime.state === 'yellow') return timing.redSeconds * 0.5
-  return 0
+// No live phase/offset is available. Assuming arrival time is uniformly distributed
+// over a cycle and a new crossing starts only during solid green, the expected wait is
+// R^2 / (2C), where R = cycle - green and C = cycle.
+export function getExpectedSignalDelay(timing: SignalTiming) {
+  if (timing.cycleSeconds <= 0) return 0
+  const unavailableSeconds = Math.max(0, timing.cycleSeconds - timing.greenSeconds)
+  return (unavailableSeconds * unavailableSeconds) / (2 * timing.cycleSeconds)
 }
 
 export function getWalkingDurationSeconds(distanceMeters: number) {
