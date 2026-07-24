@@ -29,8 +29,8 @@ type TrafficSignal = {
 type SignalGroup = { id: string; lat: number; lng: number; signals: TrafficSignal[] }
 type NominatimResult = { display_name: string; lat: string; lon: string }
 
-const SIGNAL_GROUP_DISTANCE_METERS = 18
-const ROUTE_SIGNAL_GROUP_DISTANCE_METERS = 90
+const SIGNAL_GROUP_DISTANCE_METERS = 35
+const ROUTE_SIGNAL_GROUP_DISTANCE_METERS = 30
 
 const currentLocationIcon = new L.Icon({ iconUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon.png', shadowUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-shadow.png', iconSize: [25, 41], iconAnchor: [12, 41], popupAnchor: [1, -34], shadowSize: [41, 41] })
 const startIcon = new L.Icon({ iconUrl: 'https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-green.png', shadowUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-shadow.png', iconSize: [25, 41], iconAnchor: [12, 41], popupAnchor: [1, -34], shadowSize: [41, 41] })
@@ -166,8 +166,6 @@ function App() {
         (
           node["highway"="traffic_signals"](around:${radius},${startPosition.lat},${startPosition.lng});
           node["crossing"="traffic_signals"](around:${radius},${startPosition.lat},${startPosition.lng});
-          node["highway"="crossing"](around:${radius},${startPosition.lat},${startPosition.lng});
-          way["highway"="crossing"](around:${radius},${startPosition.lat},${startPosition.lng});
         );
         out center tags;
       `
