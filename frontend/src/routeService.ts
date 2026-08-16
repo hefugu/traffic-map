@@ -126,7 +126,7 @@ async function fetchOpenRouteServiceWalkingRoutes(
         'OpenRouteService',
         usedAlternatives ? `foot-walking / candidate ${index + 1}` : 'foot-walking / shortest',
         usedAlternatives
-          ? 'OpenRouteServiceの歩行者向け代替ルート候補です。信号待ち込みの総所要時間で候補を比較します。'
+          ? 'OpenRouteServiceの歩行者向け代替ルート候補です。候補間の比較に使用します。'
           : '代替ルートを取得できなかったため、OpenRouteServiceの通常歩行ルートを使用しています。',
       ),
     )

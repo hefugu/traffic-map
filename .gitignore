@@ -1,5 +1,8 @@
 node_modules
 .next
 .env
+.env.local
+.env.*.local
+/package-lock.json
 dist
 build
