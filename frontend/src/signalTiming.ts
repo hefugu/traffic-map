@@ -6,6 +6,19 @@ export type SignalTiming = {
   blinkSeconds: number
 }
 
+export type SignalStateProbabilities = {
+  greenProbability: number
+  blinkingProbability: number
+  redProbability: number
+  waitProbability: number
+}
+
+export type PredictedSignalState = {
+  state: 'green' | 'blinking' | 'red'
+  remainingSeconds: number
+  elapsedCycleSeconds: number
+}
+
 export type SignalTimingSource = 'measured' | 'measured-average' | 'no-pedestrian-crossing'
 
 export type ResolvedSignalTiming = {
@@ -114,6 +127,89 @@ export function resolveSignalTiming(lat: number, lng: number): ResolvedSignalTim
 
 export function getSignalRedSeconds(timing: SignalTiming) {
   return Math.max(0, timing.cycleSeconds - timing.greenSeconds - timing.blinkSeconds)
+}
+
+function getNonNegativeFiniteSeconds(value: number) {
+  return Number.isFinite(value) ? Math.max(0, value) : 0
+}
+
+// The current phase and offset are unknown. These probabilities assume that a
+// pedestrian arrives uniformly at random within a signal cycle. A new crossing
+// starts only during solid green, so blinking green is included in waitProbability.
+export function getSignalStateProbabilities(timing: SignalTiming): SignalStateProbabilities {
+  const cycleSeconds = timing.cycleSeconds
+  if (!Number.isFinite(cycleSeconds) || cycleSeconds <= 0) {
+    return {
+      greenProbability: 0,
+      blinkingProbability: 0,
+      redProbability: 0,
+      waitProbability: 0,
+    }
+  }
+
+  const greenSeconds = Math.min(cycleSeconds, getNonNegativeFiniteSeconds(timing.greenSeconds))
+  const blinkingSeconds = Math.min(
+    cycleSeconds - greenSeconds,
+    getNonNegativeFiniteSeconds(timing.blinkSeconds),
+  )
+  const redSeconds = Math.max(0, cycleSeconds - greenSeconds - blinkingSeconds)
+
+  return {
+    greenProbability: greenSeconds / cycleSeconds,
+    blinkingProbability: blinkingSeconds / cycleSeconds,
+    redProbability: redSeconds / cycleSeconds,
+    waitProbability: (cycleSeconds - greenSeconds) / cycleSeconds,
+  }
+}
+
+// A prediction is only available after the user records the instant that green
+// starts. No arbitrary or clock-based phase offset is generated here.
+export function getPredictedSignalState(
+  timing: SignalTiming,
+  greenStartedAtMs: number,
+  nowMs: number,
+): PredictedSignalState | null {
+  const cycleSeconds = timing.cycleSeconds
+  if (
+    !Number.isFinite(cycleSeconds) ||
+    cycleSeconds <= 0 ||
+    !Number.isFinite(greenStartedAtMs) ||
+    !Number.isFinite(nowMs)
+  ) {
+    return null
+  }
+
+  const greenSeconds = Math.min(cycleSeconds, getNonNegativeFiniteSeconds(timing.greenSeconds))
+  const blinkingSeconds = Math.min(
+    cycleSeconds - greenSeconds,
+    getNonNegativeFiniteSeconds(timing.blinkSeconds),
+  )
+  const totalElapsedSeconds = (nowMs - greenStartedAtMs) / 1000
+  if (!Number.isFinite(totalElapsedSeconds)) return null
+
+  const elapsedCycleSeconds =
+    ((totalElapsedSeconds % cycleSeconds) + cycleSeconds) % cycleSeconds
+  const blinkingEndsAtSeconds = greenSeconds + blinkingSeconds
+
+  if (elapsedCycleSeconds < greenSeconds) {
+    return {
+      state: 'green',
+      remainingSeconds: greenSeconds - elapsedCycleSeconds,
+      elapsedCycleSeconds,
+    }
+  }
+  if (elapsedCycleSeconds < blinkingEndsAtSeconds) {
+    return {
+      state: 'blinking',
+      remainingSeconds: blinkingEndsAtSeconds - elapsedCycleSeconds,
+      elapsedCycleSeconds,
+    }
+  }
+  return {
+    state: 'red',
+    remainingSeconds: cycleSeconds - elapsedCycleSeconds,
+    elapsedCycleSeconds,
+  }
 }
 
 // No live phase/offset is available. Assuming arrival time is uniformly distributed
