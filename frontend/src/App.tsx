@@ -1,8 +1,13 @@
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { MapContainer, Marker, Polyline, Popup, TileLayer, useMap } from 'react-leaflet'
 import L from 'leaflet'
 
 import 'leaflet/dist/leaflet.css'
+import {
+  SIGNAL_CORRIDOR_RADIUS_METERS,
+  fetchTrafficSignalsAroundRoutes,
+  type SignalType,
+} from './overpassService'
 import { fetchPedestrianRoutes, type Position, type RouteInfo } from './routeService'
 import {
   DEFAULT_SIGNAL_TIMING,
@@ -14,8 +19,8 @@ import {
   type ResolvedSignalTiming,
 } from './signalTiming'
 
-type SignalType = 'pedestrian' | 'vehicle' | 'both' | 'unknown'
 type SignalDisplayMode = 'routeOnly' | 'all'
+type SignalFetchStatus = 'idle' | 'loading' | 'success' | 'error'
 
 type TrafficSignal = {
   id: number
@@ -35,16 +40,8 @@ type RouteEvaluation = {
   totalSeconds: number
 }
 
-type SignalSearchArea = {
-  center: Position
-  radiusMeters: number
-  directDistanceMeters: number
-}
-
 const SIGNAL_GROUP_DISTANCE_METERS = 35
 const ROUTE_SIGNAL_GROUP_DISTANCE_METERS = 30
-const MIN_SIGNAL_SEARCH_RADIUS_METERS = 500
-const MIN_SIGNAL_SEARCH_BUFFER_METERS = 250
 
 const currentLocationIcon = new L.Icon({ iconUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon.png', shadowUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-shadow.png', iconSize: [25, 41], iconAnchor: [12, 41], popupAnchor: [1, -34], shadowSize: [41, 41] })
 const startIcon = new L.Icon({ iconUrl: 'https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-green.png', shadowUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-shadow.png', iconSize: [25, 41], iconAnchor: [12, 41], popupAnchor: [1, -34], shadowSize: [41, 41] })
@@ -135,19 +132,6 @@ function distanceToRouteMeters(point: Position, route: Position[]) {
   return shortest
 }
 
-function getSignalSearchArea(start: Position, destination: Position): SignalSearchArea {
-  const directDistanceMeters = distanceMeters(start, destination)
-  const bufferMeters = Math.max(MIN_SIGNAL_SEARCH_BUFFER_METERS, directDistanceMeters * 0.15)
-  return {
-    center: {
-      lat: (start.lat + destination.lat) / 2,
-      lng: (start.lng + destination.lng) / 2,
-    },
-    radiusMeters: Math.max(MIN_SIGNAL_SEARCH_RADIUS_METERS, directDistanceMeters / 2 + bufferMeters),
-    directDistanceMeters,
-  }
-}
-
 function createSignalGroups(signals: TrafficSignal[]) {
   const groups: SignalGroup[] = []
   for (const signal of signals) {
@@ -191,6 +175,12 @@ function evaluateRoute(route: RouteInfo, signalGroups: SignalGroup[]): RouteEval
   }
 }
 
+function evaluateRoutes(routes: RouteInfo[], signalGroups: SignalGroup[]) {
+  return routes
+    .map((route) => evaluateRoute(route, signalGroups))
+    .sort((a, b) => a.totalSeconds - b.totalSeconds)
+}
+
 function MapFocus({ center }: { center: Position | null }) {
   const map = useMap()
   useEffect(() => {
@@ -207,119 +197,75 @@ function App() {
   const [startQuery, setStartQuery] = useState<string>('')
   const [destinationQuery, setDestinationQuery] = useState<string>('')
   const [signals, setSignals] = useState<TrafficSignal[]>([])
+  const [candidateRoutes, setCandidateRoutes] = useState<RouteInfo[]>([])
   const [routeInfo, setRouteInfo] = useState<RouteInfo | null>(null)
   const [routeEvaluations, setRouteEvaluations] = useState<RouteEvaluation[]>([])
-  const [signalSearchArea, setSignalSearchArea] = useState<SignalSearchArea | null>(null)
-  const [signalCoverageReady, setSignalCoverageReady] = useState<boolean>(false)
+  const [signalFetchStatus, setSignalFetchStatus] = useState<SignalFetchStatus>('idle')
   const [signalDisplayMode, setSignalDisplayMode] = useState<SignalDisplayMode>('routeOnly')
-  const [errorMessage, setErrorMessage] = useState<string>('')
-  const [loadingSignals, setLoadingSignals] = useState<boolean>(false)
+  const [generalErrorMessage, setGeneralErrorMessage] = useState<string>(() =>
+    typeof navigator !== 'undefined' && navigator.geolocation ? '' : 'このブラウザは位置情報に対応していません。',
+  )
+  const [routeErrorMessage, setRouteErrorMessage] = useState<string>('')
+  const [signalErrorMessage, setSignalErrorMessage] = useState<string>('')
   const [loadingStartSearch, setLoadingStartSearch] = useState<boolean>(false)
   const [loadingDestinationSearch, setLoadingDestinationSearch] = useState<boolean>(false)
   const [loadingRoute, setLoadingRoute] = useState<boolean>(false)
+  const signalAbortControllerRef = useRef<AbortController | null>(null)
+  const signalRequestIdRef = useRef(0)
+  const routeRequestIdRef = useRef(0)
+  const hasExplicitStartRef = useRef(false)
+
+  const cancelSignalRequest = useCallback(() => {
+    signalRequestIdRef.current += 1
+    signalAbortControllerRef.current?.abort()
+    signalAbortControllerRef.current = null
+  }, [])
+
+  const resetRoutingState = useCallback(() => {
+    routeRequestIdRef.current += 1
+    cancelSignalRequest()
+    setCandidateRoutes([])
+    setSignals([])
+    setRouteInfo(null)
+    setRouteEvaluations([])
+    setSignalFetchStatus('idle')
+    setRouteErrorMessage('')
+    setSignalErrorMessage('')
+    setLoadingRoute(false)
+  }, [cancelSignalRequest])
 
   useEffect(() => {
-    if (!navigator.geolocation) {
-      setErrorMessage('このブラウザは位置情報に対応していません。')
-      return
-    }
+    if (!navigator.geolocation) return
+    let active = true
     navigator.geolocation.getCurrentPosition(
       (pos) => {
+        if (!active) return
         const gpsPosition = { lat: pos.coords.latitude, lng: pos.coords.longitude }
         setCurrentLocation(gpsPosition)
-        setStartPosition(gpsPosition)
+        if (!hasExplicitStartRef.current) {
+          resetRoutingState()
+          setStartPosition(gpsPosition)
+        }
+        setGeneralErrorMessage('')
       },
       (error) => {
+        if (!active) return
         console.error(error)
-        setErrorMessage('位置情報の取得に失敗しました。出発地を検索で指定してください。')
+        setGeneralErrorMessage('位置情報の取得に失敗しました。出発地を検索で指定してください。')
       },
       { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 },
     )
-  }, [])
-
-  useEffect(() => {
-    if (!startPosition || !destinationPosition) {
-      setSignals([])
-      setSignalSearchArea(null)
-      setSignalCoverageReady(false)
-      return
+    return () => {
+      active = false
+      routeRequestIdRef.current += 1
+      cancelSignalRequest()
     }
-
-    let cancelled = false
-    const searchArea = getSignalSearchArea(startPosition, destinationPosition)
-    setSignalSearchArea(searchArea)
-    setSignalCoverageReady(false)
-
-    const fetchSignals = async () => {
-      setLoadingSignals(true)
-      setErrorMessage('')
-      const radius = Math.ceil(searchArea.radiusMeters)
-      const query = `
-        [out:json][timeout:30];
-        (
-          node["highway"="traffic_signals"](around:${radius},${searchArea.center.lat},${searchArea.center.lng});
-          node["crossing"="traffic_signals"](around:${radius},${searchArea.center.lat},${searchArea.center.lng});
-        );
-        out center tags;
-      `
-      try {
-        const response = await fetch('https://overpass-api.de/api/interpreter', { method: 'POST', body: query })
-        if (!response.ok) throw new Error(`Overpass API error: ${response.status}`)
-        const data = await response.json()
-        const parsed = data.elements
-          .map((el: any): TrafficSignal | null => {
-            const tags = el.tags || {}
-            const lat = el.lat ?? el.center?.lat
-            const lng = el.lon ?? el.center?.lon
-            if (typeof lat !== 'number' || typeof lng !== 'number') return null
-
-            let type: SignalType = 'unknown'
-            let source = 'unknown'
-            const isVehicleSignal = tags.highway === 'traffic_signals'
-            const isTrafficSignalCrossing = tags.crossing === 'traffic_signals'
-            if (isVehicleSignal && isTrafficSignalCrossing) {
-              type = 'both'
-              source = 'highway=traffic_signals + crossing=traffic_signals'
-            } else if (isTrafficSignalCrossing) {
-              type = 'pedestrian'
-              source = 'crossing=traffic_signals'
-            } else if (isVehicleSignal) {
-              type = 'vehicle'
-              source = 'highway=traffic_signals'
-            }
-
-            return { id: el.id, lat, lng, type, source, timingResolution: resolveSignalTiming(lat, lng) }
-          })
-          .filter((signal: TrafficSignal | null): signal is TrafficSignal => signal !== null)
-
-        if (cancelled) return
-        setSignals(Array.from(new Map(parsed.map((signal) => [`${signal.type}-${signal.id}`, signal])).values()))
-        setSignalCoverageReady(true)
-      } catch (err) {
-        console.error(err)
-        if (!cancelled) {
-          setSignals([])
-          setSignalCoverageReady(false)
-          setErrorMessage('出発地〜目的地範囲の信号データ取得に失敗しました。時間を置いて再読み込みしてください。')
-        }
-      } finally {
-        if (!cancelled) setLoadingSignals(false)
-      }
-    }
-
-    fetchSignals()
-    return () => { cancelled = true }
-  }, [startPosition, destinationPosition])
-
-  useEffect(() => {
-    setRouteInfo(null)
-    setRouteEvaluations([])
-  }, [startPosition, destinationPosition])
+  }, [cancelSignalRequest, resetRoutingState])
 
   const searchPlace = async (query: string): Promise<Position | null> => {
     const trimmedQuery = query.trim()
     if (!trimmedQuery) {
-      setErrorMessage('検索キーワードを入力してください。')
+      setGeneralErrorMessage('検索キーワードを入力してください。')
       return null
     }
     const params = new URLSearchParams({ format: 'json', q: trimmedQuery, countrycodes: 'jp', limit: '1' })
@@ -327,7 +273,7 @@ function App() {
     if (!response.ok) throw new Error(`Nominatim API error: ${response.status}`)
     const results = (await response.json()) as NominatimResult[]
     if (results.length === 0) {
-      setErrorMessage(`検索結果がありません: ${trimmedQuery}`)
+      setGeneralErrorMessage(`検索結果がありません: ${trimmedQuery}`)
       return null
     }
     return { lat: Number(results[0].lat), lng: Number(results[0].lon) }
@@ -335,13 +281,17 @@ function App() {
 
   const searchStart = async () => {
     setLoadingStartSearch(true)
-    setErrorMessage('')
+    setGeneralErrorMessage('')
     try {
       const result = await searchPlace(startQuery)
-      if (result) setStartPosition(result)
+      if (result) {
+        hasExplicitStartRef.current = true
+        resetRoutingState()
+        setStartPosition(result)
+      }
     } catch (err) {
       console.error(err)
-      setErrorMessage('出発地検索に失敗しました。')
+      setGeneralErrorMessage('出発地検索に失敗しました。')
     } finally {
       setLoadingStartSearch(false)
     }
@@ -349,13 +299,16 @@ function App() {
 
   const searchDestination = async () => {
     setLoadingDestinationSearch(true)
-    setErrorMessage('')
+    setGeneralErrorMessage('')
     try {
       const result = await searchPlace(destinationQuery)
-      if (result) setDestinationPosition(result)
+      if (result) {
+        resetRoutingState()
+        setDestinationPosition(result)
+      }
     } catch (err) {
       console.error(err)
-      setErrorMessage('目的地検索に失敗しました。')
+      setGeneralErrorMessage('目的地検索に失敗しました。')
     } finally {
       setLoadingDestinationSearch(false)
     }
@@ -363,42 +316,94 @@ function App() {
 
   const signalGroups = createSignalGroups(signals)
 
+  const fetchSignalsForRoutes = async (routes: RouteInfo[]) => {
+    if (routes.length === 0) return
+
+    cancelSignalRequest()
+    const requestId = signalRequestIdRef.current
+    const controller = new AbortController()
+    signalAbortControllerRef.current = controller
+    const walkingOnlyEvaluations = evaluateRoutes(routes, [])
+    setSignals([])
+    setRouteEvaluations(walkingOnlyEvaluations)
+    setRouteInfo(walkingOnlyEvaluations[0].route)
+    setSignalFetchStatus('loading')
+    setSignalErrorMessage('')
+
+    try {
+      const fetchedSignals = await fetchTrafficSignalsAroundRoutes(routes, { signal: controller.signal })
+      if (requestId !== signalRequestIdRef.current || controller.signal.aborted) return
+
+      const resolvedSignals: TrafficSignal[] = fetchedSignals.map((signal) => ({
+        ...signal,
+        timingResolution: resolveSignalTiming(signal.lat, signal.lng),
+      }))
+      const signalAwareEvaluations = evaluateRoutes(routes, createSignalGroups(resolvedSignals))
+      if (signalAwareEvaluations.length === 0) throw new Error('比較できる徒歩ルートがありません。')
+      setSignals(resolvedSignals)
+      setRouteEvaluations(signalAwareEvaluations)
+      setRouteInfo(signalAwareEvaluations[0].route)
+      setSignalFetchStatus('success')
+    } catch (err) {
+      if (requestId !== signalRequestIdRef.current || controller.signal.aborted) return
+      console.error(err)
+      setSignals([])
+      setRouteEvaluations(walkingOnlyEvaluations)
+      setRouteInfo(walkingOnlyEvaluations[0].route)
+      setSignalFetchStatus('error')
+      setSignalErrorMessage('信号情報を取得できなかったため、信号待ちを含まない経路を表示しています。')
+    } finally {
+      if (requestId === signalRequestIdRef.current) signalAbortControllerRef.current = null
+    }
+  }
+
   const fetchFastestRoute = async () => {
     if (!startPosition || !destinationPosition) {
-      setErrorMessage('出発地と目的地を設定してください。')
-      return
-    }
-    if (!signalCoverageReady) {
-      setErrorMessage('信号データの取得が完了していません。')
+      setRouteErrorMessage('出発地と目的地を設定してください。')
       return
     }
 
+    const requestId = routeRequestIdRef.current + 1
+    routeRequestIdRef.current = requestId
+    cancelSignalRequest()
     setLoadingRoute(true)
-    setErrorMessage('')
+    setGeneralErrorMessage('')
+    setRouteErrorMessage('')
+    setSignalErrorMessage('')
+    setSignalFetchStatus('idle')
+    setCandidateRoutes([])
+    setSignals([])
+    setRouteInfo(null)
+    setRouteEvaluations([])
     try {
-      const candidateRoutes = await fetchPedestrianRoutes(startPosition, destinationPosition)
-      const evaluations = candidateRoutes
-        .map((route) => evaluateRoute(route, signalGroups))
-        .sort((a, b) => a.totalSeconds - b.totalSeconds)
-      if (evaluations.length === 0) throw new Error('比較できる徒歩ルートがありません。')
-      setRouteEvaluations(evaluations)
-      setRouteInfo(evaluations[0].route)
-    } catch (err) {
-      console.error(err)
-      setErrorMessage('徒歩ルートの取得・信号待ち比較に失敗しました。')
-    } finally {
+      const routes = await fetchPedestrianRoutes(startPosition, destinationPosition)
+      if (requestId !== routeRequestIdRef.current) return
+      const walkingOnlyEvaluations = evaluateRoutes(routes, [])
+      if (walkingOnlyEvaluations.length === 0) throw new Error('比較できる徒歩ルートがありません。')
+      setCandidateRoutes(routes)
+      setRouteEvaluations(walkingOnlyEvaluations)
+      setRouteInfo(walkingOnlyEvaluations[0].route)
       setLoadingRoute(false)
+      void fetchSignalsForRoutes(routes)
+    } catch (err) {
+      if (requestId !== routeRequestIdRef.current) return
+      console.error(err)
+      setRouteErrorMessage('徒歩ルートの取得に失敗しました。')
+    } finally {
+      if (requestId === routeRequestIdRef.current) setLoadingRoute(false)
     }
   }
 
   const useCurrentLocationAsStart = () => {
     if (!currentLocation) {
-      setErrorMessage('現在地が取得できていません。')
+      setGeneralErrorMessage('現在地が取得できていません。')
       return
     }
+    hasExplicitStartRef.current = true
+    resetRoutingState()
     setStartPosition(currentLocation)
     setStartQuery('')
-    setErrorMessage('')
+    setGeneralErrorMessage('')
   }
 
   const vehicleCount = signals.filter((signal) => signal.type === 'vehicle').length
@@ -419,7 +424,9 @@ function App() {
   const mapCenter = startPosition ?? currentLocation ?? { lat: 35.6812, lng: 139.7671 }
   const defaultExpectedDelaySeconds = getExpectedSignalDelay(DEFAULT_SIGNAL_TIMING)
   const defaultRedSeconds = getSignalRedSeconds(DEFAULT_SIGNAL_TIMING)
-  const routeButtonDisabled = loadingRoute || loadingSignals || !signalCoverageReady || !startPosition || !destinationPosition
+  const loadingSignals = signalFetchStatus === 'loading'
+  const signalEvaluationReady = signalFetchStatus === 'success'
+  const routeButtonDisabled = loadingRoute || !startPosition || !destinationPosition
 
   return (
     <div style={{ width: '100vw', height: '100vh', position: 'relative' }}>
@@ -427,7 +434,7 @@ function App() {
         <div style={{ fontWeight: 'bold', marginBottom: '8px', fontSize: '16px' }}>赤信号回避ナビ 試作</div>
         <section style={{ marginBottom: '12px' }}>
           <label style={{ display: 'block', fontWeight: 'bold' }}>出発地</label>
-          <input value={startQuery} onChange={(e) => setStartQuery(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') searchStart() }} placeholder="出発地" style={{ width: '100%', boxSizing: 'border-box', padding: '6px' }} />
+          <input value={startQuery} onChange={(e) => setStartQuery(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter' && !loadingStartSearch) void searchStart() }} placeholder="出発地" style={{ width: '100%', boxSizing: 'border-box', padding: '6px' }} />
           <div style={{ display: 'flex', gap: '6px', marginTop: '6px' }}>
             <button onClick={searchStart} disabled={loadingStartSearch} style={{ flex: 1 }}>{loadingStartSearch ? '検索中...' : '検索'}</button>
             <button onClick={useCurrentLocationAsStart} style={{ flex: 1 }}>現在地</button>
@@ -435,11 +442,11 @@ function App() {
         </section>
         <section style={{ marginBottom: '12px' }}>
           <label style={{ display: 'block', fontWeight: 'bold' }}>目的地</label>
-          <input value={destinationQuery} onChange={(e) => setDestinationQuery(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') searchDestination() }} placeholder="目的地" style={{ width: '100%', boxSizing: 'border-box', padding: '6px' }} />
+          <input value={destinationQuery} onChange={(e) => setDestinationQuery(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter' && !loadingDestinationSearch) void searchDestination() }} placeholder="目的地" style={{ width: '100%', boxSizing: 'border-box', padding: '6px' }} />
           <button onClick={searchDestination} disabled={loadingDestinationSearch} style={{ width: '100%', marginTop: '6px' }}>{loadingDestinationSearch ? '検索中...' : '検索'}</button>
         </section>
         <button onClick={fetchFastestRoute} disabled={routeButtonDisabled} style={{ width: '100%', padding: '10px', marginBottom: '12px', fontWeight: 'bold', cursor: routeButtonDisabled ? 'not-allowed' : 'pointer' }}>
-          {loadingSignals ? '信号取得中...' : loadingRoute ? '候補比較中...' : '信号込み最速ルート'}
+          {loadingRoute ? '候補取得中...' : '信号込み最速ルート'}
         </button>
         <section style={{ marginBottom: '12px' }}>
           <button onClick={() => setSignalDisplayMode((prev) => (prev === 'routeOnly' ? 'all' : 'routeOnly'))} style={{ width: '100%' }}>信号表示: {signalDisplayMode === 'routeOnly' ? 'ルート付近のみ' : '全信号'}</button>
@@ -454,11 +461,12 @@ function App() {
             <div>距離: {formatKm(routeInfo.distanceMeters)}</div>
             <div>徒歩速度: {WALKING_SPEED_KMH}km/h</div>
             <div>徒歩時間: {formatMinutes(routeInfo.durationSeconds)}</div>
-            <div>ルート上信号群: {routeNearbyGroups.length}個</div>
-            <div>期待信号待ち: {formatSeconds(estimatedSignalDelaySeconds)}</div>
-            <div style={{ fontWeight: 'bold' }}>信号込み最速時間: {formatMinutes(estimatedRouteSeconds)}</div>
-            <div style={{ marginTop: '6px', fontSize: '12px', color: '#666' }}>※候補ごとに「徒歩時間 + 期待信号待ち」を計算し、合計が最小のルートを採用しています。</div>
-            <div style={{ marginTop: '4px', fontSize: '12px', color: '#666' }}>※信号位相・オフセットは未取得のため、現在色ではなくランダム到着時の期待待ち時間で比較しています。</div>
+            <div>ルート上信号群: {signalEvaluationReady ? `${routeNearbyGroups.length}個` : '未評価'}</div>
+            <div>期待信号待ち: {signalEvaluationReady ? formatSeconds(estimatedSignalDelaySeconds) : '未反映'}</div>
+            <div style={{ fontWeight: 'bold' }}>{signalEvaluationReady ? '信号込み最速時間' : '徒歩所要時間'}: {formatMinutes(estimatedRouteSeconds)}</div>
+            {signalEvaluationReady && <div style={{ marginTop: '6px', fontSize: '12px', color: '#666' }}>※候補ごとに「徒歩時間 + 期待信号待ち」を計算し、合計が最小のルートを採用しています。</div>}
+            {signalEvaluationReady && <div style={{ marginTop: '4px', fontSize: '12px', color: '#666' }}>※信号位相・オフセットは未取得のため、現在色ではなくランダム到着時の期待待ち時間で比較しています。</div>}
+            {loadingSignals && <div style={{ marginTop: '6px', fontSize: '12px', color: '#666' }}>候補経路周辺の信号を取得中です。通常の徒歩経路は表示済みです。</div>}
             <div style={{ marginTop: '6px', fontSize: '12px', color: '#666' }}>{routeInfo.note}</div>
           </section>
         )}
@@ -469,7 +477,11 @@ function App() {
             {routeEvaluations.map((evaluation, index) => (
               <div key={`${evaluation.route.provider}-${evaluation.route.profile}-${index}`} style={{ padding: '4px 0', borderTop: index === 0 ? 'none' : '1px solid #eee' }}>
                 <div style={{ fontWeight: index === 0 ? 'bold' : 'normal' }}>{index + 1}. {index === 0 ? '採用 ' : ''}{formatKm(evaluation.route.distanceMeters)}</div>
-                <div style={{ fontSize: '12px' }}>徒歩 {formatSeconds(evaluation.route.durationSeconds)} + 信号 {formatSeconds(evaluation.signalDelaySeconds)} = {formatSeconds(evaluation.totalSeconds)} / 信号{evaluation.signalGroups.length}群</div>
+                <div style={{ fontSize: '12px' }}>
+                  {signalEvaluationReady
+                    ? `徒歩 ${formatSeconds(evaluation.route.durationSeconds)} + 信号 ${formatSeconds(evaluation.signalDelaySeconds)} = ${formatSeconds(evaluation.totalSeconds)} / 信号${evaluation.signalGroups.length}群`
+                    : `徒歩 ${formatSeconds(evaluation.route.durationSeconds)} / 信号待ちは未反映`}
+                </div>
               </div>
             ))}
           </section>
@@ -482,7 +494,7 @@ function App() {
           <div>データ: 江東区の実測交差点を優先、未計測地点は実測平均</div>
           <div>実測位置マッチ: {MEASURED_SIGNAL_MATCH_DISTANCE_METERS}m以内</div>
           <div>実測値適用中: {measuredCount}本</div>
-          {signalSearchArea && <div>取得範囲: 直線{formatKm(signalSearchArea.directDistanceMeters)} / 中点から半径{formatKm(signalSearchArea.radiusMeters)}</div>}
+          <div>取得範囲: 候補経路{candidateRoutes.length > 0 ? `${candidateRoutes.length}本` : ''}の周囲{SIGNAL_CORRIDOR_RADIUS_METERS}m</div>
           <div>ルート付近判定: {ROUTE_SIGNAL_GROUP_DISTANCE_METERS}m</div>
           <div>グループ化距離: {SIGNAL_GROUP_DISTANCE_METERS}m</div>
           <div>表示中: {visibleSignalGroups.length}群</div>
@@ -492,20 +504,34 @@ function App() {
           <div>歩行者用: {pedestrianCount}</div>
           <div>両方: {bothCount}</div>
           <div>不明: {unknownCount}</div>
-          <div>{loadingSignals ? '取得中...' : signalCoverageReady ? '取得完了' : '目的地設定待ち'}</div>
+          <div>
+            {signalFetchStatus === 'loading' && '取得中...'}
+            {signalFetchStatus === 'success' && '取得完了'}
+            {signalFetchStatus === 'error' && '取得失敗（通常経路を表示中）'}
+            {signalFetchStatus === 'idle' && (candidateRoutes.length > 0 ? '信号取得待ち' : 'ルート検索待ち')}
+          </div>
+          <button
+            onClick={() => { void fetchSignalsForRoutes(candidateRoutes) }}
+            disabled={candidateRoutes.length === 0 || loadingSignals}
+            style={{ width: '100%', marginTop: '6px' }}
+          >
+            {loadingSignals ? '信号データ再取得中...' : '信号データを再取得'}
+          </button>
         </section>
         <section style={{ fontSize: '12px', color: '#555' }}>
           <div>出発地: {startPosition ? `${startPosition.lat.toFixed(5)}, ${startPosition.lng.toFixed(5)}` : '未設定'}</div>
           <div>目的地: {destinationPosition ? `${destinationPosition.lat.toFixed(5)}, ${destinationPosition.lng.toFixed(5)}` : '未設定'}</div>
         </section>
-        {errorMessage && <div style={{ color: 'red', marginTop: '6px' }}>{errorMessage}</div>}
+        {generalErrorMessage && <div style={{ color: 'red', marginTop: '6px' }}>{generalErrorMessage}</div>}
+        {routeErrorMessage && <div style={{ color: 'red', marginTop: '6px' }}>{routeErrorMessage}</div>}
+        {signalErrorMessage && <div style={{ color: '#b45309', marginTop: '6px' }}>{signalErrorMessage}</div>}
       </div>
 
       <div style={{ position: 'absolute', zIndex: 1000, bottom: '20px', right: '12px', background: 'white', padding: '8px 10px', borderRadius: '8px', fontFamily: 'sans-serif', boxShadow: '0 2px 8px rgba(0,0,0,0.2)', fontSize: '12px', lineHeight: '1.6' }}>
         <div>青ピン: GPS現在地</div>
         <div>緑ピン: 出発地</div>
         <div>橙ピン: 目的地</div>
-        <div>青線: 信号込み最速ルート</div>
+        <div>青線: 採用ルート</div>
         <div>青丸: 実測タイミング</div>
         <div>灰丸: 実測平均タイミング</div>
         <div>丸内 ~秒: 期待待ち時間</div>
