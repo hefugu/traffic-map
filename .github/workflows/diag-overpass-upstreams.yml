@@ -1,4 +1,4 @@
-name: Diagnose Overpass upstreams
+name: Diagnose OSM signal fallback
 
 on:
   push:
@@ -9,26 +9,35 @@ jobs:
   diagnose:
     runs-on: ubuntu-latest
     steps:
-      - name: Probe endpoints
+      - name: Probe ohsome latest traffic signals
         shell: bash
         run: |
           set -u
-          QUERY='[out:json][timeout:10];node["highway"="traffic_signals"](35.695,139.80,35.70,139.82);out body 1;'
-          for URL in \
-            'https://overpass.kumi.systems/api/interpreter' \
-            'https://overpass.nchc.org.tw/api/interpreter' \
-            'https://gall.openstreetmap.de/api/interpreter' \
-            'https://lambert.openstreetmap.de/api/interpreter'
-          do
-            echo "=== $URL ==="
-            rm -f /tmp/overpass-body.txt
-            CODE=$(curl -sS --max-time 20 --compressed -o /tmp/overpass-body.txt -w '%{http_code}' \
-              -H 'Accept: application/json' \
-              -H 'User-Agent: traffic-map/1.0 (https://traffic-map-delta.vercel.app)' \
-              -H 'Referer: https://traffic-map-delta.vercel.app/' \
-              --data-urlencode "data=$QUERY" \
-              "$URL" || true)
-            echo "status=$CODE"
-            head -c 300 /tmp/overpass-body.txt || true
-            echo
-          done
+          rm -f /tmp/ohsome.json
+          CODE=$(curl -sS --max-time 30 --compressed -o /tmp/ohsome.json -w '%{http_code}' \
+            -X POST 'https://api.ohsome.org/v1/elements/geometry' \
+            -H 'Accept: application/geo+json, application/json' \
+            -H 'User-Agent: traffic-map/1.0 (https://traffic-map-delta.vercel.app)' \
+            --data-urlencode 'bboxes=139.80,35.695,139.82,35.70' \
+            --data-urlencode 'filter=type:node and (highway=traffic_signals or crossing=traffic_signals)' \
+            --data-urlencode 'properties=tags,metadata' \
+            --data-urlencode 'clipGeometry=false' || true)
+          echo "status=$CODE"
+          python - <<'PY'
+          import json
+          p='/tmp/ohsome.json'
+          try:
+              with open(p, encoding='utf-8') as f:
+                  data=json.load(f)
+              print('type=', data.get('type'))
+              print('features=', len(data.get('features', [])))
+              print('metadata=', data.get('metadata', {}))
+              for feature in data.get('features', [])[:3]:
+                  print(feature)
+          except Exception as e:
+              print('parse_error=', repr(e))
+              try:
+                  print(open(p, encoding='utf-8', errors='replace').read()[:1000])
+              except Exception:
+                  pass
+          PY
