@@ -1,0 +1,765 @@
+{
+  "sourceArticleCount": 337,
+  "generatedProfileCount": 216,
+  "manualCuratedProfileCount": 13,
+  "combinedProfileCount": 229,
+  "byWardGenerated": {
+    "千代田区": 34,
+    "中央区": 15,
+    "港区": 37,
+    "新宿区": 15,
+    "文京区": 5,
+    "台東区": 8,
+    "墨田区": 3,
+    "江東区": 0,
+    "品川区": 4,
+    "目黒区": 9,
+    "大田区": 10,
+    "世田谷区": 8,
+    "渋谷区": 37,
+    "中野区": 3,
+    "杉並区": 2,
+    "豊島区": 5,
+    "北区": 1,
+    "荒川区": 2,
+    "板橋区": 1,
+    "練馬区": 4,
+    "足立区": 4,
+    "葛飾区": 5,
+    "江戸川区": 4
+  },
+  "excludedByReason": {
+    "already-manually-curated": 11,
+    "cycle-out-of-range": 1,
+    "not-machine-readable": 105,
+    "table-cycle-mismatch": 4
+  },
+  "excludedRows": [
+    {
+      "ward": "千代田区",
+      "title": "【休止中】首都高丸の内出口の信号サイクル",
+      "url": "https://www.shingou-saikuru.com/2020/11/marunouchi-exit.html",
+      "reason": "not-machine-readable"
+    },
+    {
+      "ward": "千代田区",
+      "title": "【千代田区】三宅坂交差点の信号サイクル",
+      "url": "https://www.shingou-saikuru.com/2020/10/miyakezaka.html",
+      "reason": "not-machine-readable"
+    },
+    {
+      "ward": "千代田区",
+      "title": "【千代田区】内堀通りが折れ曲がる、竹橋交差点の信号サイクル。",
+      "url": "https://www.shingou-saikuru.com/2021/09/takebashi.html",
+      "reason": "not-machine-readable"
+    },
+    {
+      "ward": "千代田区",
+      "title": "【千代田区】右折レーンが4つ！祝田橋交差点の信号サイクル",
+      "url": "https://www.shingou-saikuru.com/2021/03/iwaida-brdg.html",
+      "reason": "not-machine-readable"
+    },
+    {
+      "ward": "千代田区",
+      "title": "【千代田区】東京駅の南西側にある交差点の信号サイクル",
+      "url": "https://www.shingou-saikuru.com/2018/01/marunouchi-101-15.html",
+      "reason": "not-machine-readable"
+    },
+    {
+      "ward": "千代田区",
+      "title": "【千代田区】東京駅中央口交差点。丸の内側の信号サイクル。",
+      "url": "https://www.shingou-saikuru.com/2018/01/tokyo-sta.html",
+      "reason": "not-machine-readable"
+    },
+    {
+      "ward": "千代田区",
+      "title": "【千代田区】淡路町交差点の信号サイクル",
+      "url": "https://www.shingou-saikuru.com/2021/07/awajicho.html",
+      "reason": "not-machine-readable"
+    },
+    {
+      "ward": "千代田区",
+      "title": "【千代田区】聖橋交差点の信号サイクル",
+      "url": "https://www.shingou-saikuru.com/2020/11/hijiri-bridge.html",
+      "reason": "not-machine-readable"
+    },
+    {
+      "ward": "千代田区",
+      "title": "【千代田区】警視庁がある、桜田門交差点の信号サイクル。",
+      "url": "https://www.shingou-saikuru.com/2018/01/sakuradamon.html",
+      "reason": "not-machine-readable"
+    },
+    {
+      "ward": "千代田区",
+      "title": "【千代田区】鉄道弘済会館前交差点の信号サイクル",
+      "url": "https://www.shingou-saikuru.com/2021/10/tetsudokosaikaikan.html",
+      "reason": "not-machine-readable"
+    },
+    {
+      "ward": "千代田区",
+      "title": "【千代田区】須田町交差点の信号サイクル",
+      "url": "https://www.shingou-saikuru.com/2018/01/sudacho.html",
+      "reason": "not-machine-readable"
+    },
+    {
+      "ward": "千代田区",
+      "title": "千代田区役所交差点の信号サイクル",
+      "url": "https://www.shingou-saikuru.com/2020/10/chiyoda-city-office.html",
+      "reason": "not-machine-readable"
+    },
+    {
+      "ward": "千代田区",
+      "title": "大手町交差点の信号サイクル。日比谷通り×永代通り【千代田区】",
+      "url": "https://www.shingou-saikuru.com/2018/01/otemachi.html",
+      "reason": "table-cycle-mismatch"
+    },
+    {
+      "ward": "中央区",
+      "title": "【中央区】八重洲中央口前交差点の信号サイクル。東京駅新幹線ホーム最寄り",
+      "url": "https://www.shingou-saikuru.com/2021/10/yaesu-c-ent.html",
+      "reason": "not-machine-readable"
+    },
+    {
+      "ward": "中央区",
+      "title": "【中央区】区道451号線と区道625号線の交差点の信号サイクル",
+      "url": "https://www.shingou-saikuru.com/2021/07/tsukiji-106-77.html",
+      "reason": "not-machine-readable"
+    },
+    {
+      "ward": "中央区",
+      "title": "【中央区】新富一丁目交差点の信号サイクル",
+      "url": "https://www.shingou-saikuru.com/2020/09/shintomi-1.html",
+      "reason": "not-machine-readable"
+    },
+    {
+      "ward": "中央区",
+      "title": "【中央区】江戸通り×中央通り。室町3丁目交差点の信号サイクル",
+      "url": "https://www.shingou-saikuru.com/2021/08/muromachi-3.html",
+      "reason": "not-machine-readable"
+    },
+    {
+      "ward": "中央区",
+      "title": "【中央区】銀座通り口交差点の信号サイクル。歩行者天国の境界。",
+      "url": "https://www.shingou-saikuru.com/2021/10/ginza-dori-guchi.html",
+      "reason": "table-cycle-mismatch"
+    },
+    {
+      "ward": "中央区",
+      "title": "【中央区】鍛冶橋交差点の信号サイクル",
+      "url": "https://www.shingou-saikuru.com/2020/12/kajibashi.html",
+      "reason": "not-machine-readable"
+    },
+    {
+      "ward": "港区",
+      "title": "【港区】ゲートウェイの由来？高輪大木戸跡交差点の信号サイクル。",
+      "url": "https://www.shingou-saikuru.com/2021/10/takanawaokidoato.html",
+      "reason": "not-machine-readable"
+    },
+    {
+      "ward": "港区",
+      "title": "【港区】中央通り・昭和通り・第一京浜・外堀通りの交差点の信号サイクル",
+      "url": "https://www.shingou-saikuru.com/2018/03/atago-108-22.html",
+      "reason": "not-machine-readable"
+    },
+    {
+      "ward": "港区",
+      "title": "【港区】二輪禁止のアンダーパスがある。新橋駅前交差点の信号サイクル。",
+      "url": "https://www.shingou-saikuru.com/2018/03/shinbashi-sta.html",
+      "reason": "not-machine-readable"
+    },
+    {
+      "ward": "港区",
+      "title": "【港区】台場交差点の信号サイクル",
+      "url": "https://www.shingou-saikuru.com/2018/03/daiba.html",
+      "reason": "not-machine-readable"
+    },
+    {
+      "ward": "港区",
+      "title": "【港区】大きな横断歩道がある、田町駅西口交差点の信号サイクル",
+      "url": "https://www.shingou-saikuru.com/2020/12/tamachi-sta-w.html",
+      "reason": "not-machine-readable"
+    },
+    {
+      "ward": "港区",
+      "title": "【港区】実は時差式。有栖川公園前交差点の信号サイクル。",
+      "url": "https://www.shingou-saikuru.com/2021/08/arisugawa-park.html",
+      "reason": "not-machine-readable"
+    },
+    {
+      "ward": "港区",
+      "title": "【港区】山王下(日枝神社入口)交差点の信号サイクル",
+      "url": "https://www.shingou-saikuru.com/2021/04/sannoshita.html",
+      "reason": "not-machine-readable"
+    },
+    {
+      "ward": "港区",
+      "title": "【港区】浜松町駅の西。大門交差点の信号サイクル。",
+      "url": "https://www.shingou-saikuru.com/2018/03/daimon.html",
+      "reason": "not-machine-readable"
+    },
+    {
+      "ward": "港区",
+      "title": "【港区】白金台交差点の信号サイクル。外苑西通り×目黒通り。",
+      "url": "https://www.shingou-saikuru.com/2021/10/shirokanedai.html",
+      "reason": "not-machine-readable"
+    },
+    {
+      "ward": "港区",
+      "title": "【港区】芝五丁目交差点の信号サイクル",
+      "url": "https://www.shingou-saikuru.com/2020/12/shiba-5.html",
+      "reason": "not-machine-readable"
+    },
+    {
+      "ward": "港区",
+      "title": "【港区】芝商業高校前交差点の信号サイクル。海岸通り車道は自転車通行禁止。",
+      "url": "https://www.shingou-saikuru.com/2018/03/shibashogyo-koko.html",
+      "reason": "not-machine-readable"
+    },
+    {
+      "ward": "港区",
+      "title": "【港区】複雑な五差路。赤羽橋交差点の信号サイクル。",
+      "url": "https://www.shingou-saikuru.com/2018/03/akabanebashi.html",
+      "reason": "not-machine-readable"
+    },
+    {
+      "ward": "港区",
+      "title": "神谷町交差点の信号サイクル",
+      "url": "https://www.shingou-saikuru.com/2020/10/kamiyacho.html",
+      "reason": "not-machine-readable"
+    },
+    {
+      "ward": "港区",
+      "title": "都道413号線と坂の交差点(赤坂)の信号サイクル",
+      "url": "https://www.shingou-saikuru.com/2020/10/akasaka-413.html",
+      "reason": "not-machine-readable"
+    },
+    {
+      "ward": "新宿区",
+      "title": "【新宿区】中央通り副都心4号線の横断路2つの信号サイクル",
+      "url": "https://www.shingou-saikuru.com/2022/01/shinjuku-436-98.html",
+      "reason": "not-machine-readable"
+    },
+    {
+      "ward": "新宿区",
+      "title": "【新宿区】四谷三丁目交差点の信号サイクル。新宿通り×外苑東通り。",
+      "url": "https://www.shingou-saikuru.com/2018/04/yotsuya-3.html",
+      "reason": "not-machine-readable"
+    },
+    {
+      "ward": "新宿区",
+      "title": "【新宿区】新宿大ガード東交差点の信号サイクル",
+      "url": "https://www.shingou-saikuru.com/2018/04/shinjuku-ogado-e.html",
+      "reason": "not-machine-readable"
+    },
+    {
+      "ward": "新宿区",
+      "title": "【新宿区】新宿御苑駅前交差点の信号サイクル",
+      "url": "https://www.shingou-saikuru.com/2021/08/shinjukugyoen-sta.html",
+      "reason": "not-machine-readable"
+    },
+    {
+      "ward": "新宿区",
+      "title": "【新宿区】時間で変わる一方通行。神楽坂下交差点の信号サイクル",
+      "url": "https://www.shingou-saikuru.com/2021/08/kagurazaka-shita.html",
+      "reason": "not-machine-readable"
+    },
+    {
+      "ward": "新宿区",
+      "title": "【新宿区】東西は別々に青になる。合羽坂交差点の信号サイクル。",
+      "url": "https://www.shingou-saikuru.com/2021/07/kappa-zaka.html",
+      "reason": "not-machine-readable"
+    },
+    {
+      "ward": "新宿区",
+      "title": "【新宿区】横断歩道がない！新都心歩道橋下交差点の信号サイクル",
+      "url": "https://www.shingou-saikuru.com/2020/12/shintoshin-hodokyo-shita.html",
+      "reason": "not-machine-readable"
+    },
+    {
+      "ward": "新宿区",
+      "title": "【新宿区】民音音楽博物館交差点の信号サイクル",
+      "url": "https://www.shingou-saikuru.com/2021/10/min-on-museum.html",
+      "reason": "not-machine-readable"
+    },
+    {
+      "ward": "新宿区",
+      "title": "【新宿区】職安通りとつつじ通り(補助72号線)の交差点の信号サイクル",
+      "url": "https://www.shingou-saikuru.com/2020/09/shinjukushokuan.html",
+      "reason": "not-machine-readable"
+    },
+    {
+      "ward": "新宿区",
+      "title": "【新宿区】首都高速上り外苑出口の交差点の信号サイクル",
+      "url": "https://www.shingou-saikuru.com/2021/10/yotsuya-438-60.html",
+      "reason": "not-machine-readable"
+    },
+    {
+      "ward": "新宿区",
+      "title": "【新宿区】首都高速下り外苑出口の交差点の信号サイクル",
+      "url": "https://www.shingou-saikuru.com/2021/10/yotsuya-438-65.html",
+      "reason": "not-machine-readable"
+    },
+    {
+      "ward": "新宿区",
+      "title": "取り締まり重点エリア。飯田橋交差点の信号サイクル",
+      "url": "https://www.shingou-saikuru.com/2020/09/iidabashi.html",
+      "reason": "not-machine-readable"
+    },
+    {
+      "ward": "新宿区",
+      "title": "新宿警察署裏交差点の信号サイクル【新宿区】",
+      "url": "https://www.shingou-saikuru.com/2020/12/shinjuku-police-ura.html",
+      "reason": "not-machine-readable"
+    },
+    {
+      "ward": "新宿区",
+      "title": "新宿駅東口交差点の信号サイクル",
+      "url": "https://www.shingou-saikuru.com/2021/01/shinjuku-sta-e.html",
+      "reason": "not-machine-readable"
+    },
+    {
+      "ward": "新宿区",
+      "title": "新隆慶橋西詰、新隆慶橋東詰交差点の信号サイクル【新宿区・文京区】",
+      "url": "https://www.shingou-saikuru.com/2022/04/shinryukeibashi.html",
+      "reason": "not-machine-readable"
+    },
+    {
+      "ward": "文京区",
+      "title": "【文京区】夜は点滅。首都高速飯田橋出口の信号サイクル",
+      "url": "https://www.shingou-saikuru.com/2018/05/tomisaka-545-76.html",
+      "reason": "not-machine-readable"
+    },
+    {
+      "ward": "文京区",
+      "title": "【文京区】根津駅の真上。根津一丁目交差点の信号サイクル",
+      "url": "https://www.shingou-saikuru.com/2020/09/nezu-1.html",
+      "reason": "not-machine-readable"
+    },
+    {
+      "ward": "文京区",
+      "title": "【文京区】隆慶橋にある交差点の信号サイクル",
+      "url": "https://www.shingou-saikuru.com/2021/09/tomisaka-545-36.html",
+      "reason": "not-machine-readable"
+    },
+    {
+      "ward": "文京区",
+      "title": "後楽橋交差点の信号サイクル",
+      "url": "https://www.shingou-saikuru.com/2020/10/koraku-bridge.html",
+      "reason": "not-machine-readable"
+    },
+    {
+      "ward": "台東区",
+      "title": "【台東区】三ノ輪駅の真上。大関横丁交差点の信号サイクル",
+      "url": "https://www.shingou-saikuru.com/2021/09/ozekiyokocho.html",
+      "reason": "not-machine-readable"
+    },
+    {
+      "ward": "台東区",
+      "title": "【台東区】吉原大門(よしわらおおもん)交差点の信号サイクル",
+      "url": "https://www.shingou-saikuru.com/2021/09/yoshiwaraomon.html",
+      "reason": "not-machine-readable"
+    },
+    {
+      "ward": "台東区",
+      "title": "【台東区】日本堤一丁目交差点の信号サイクル",
+      "url": "https://www.shingou-saikuru.com/2021/09/nihonzutsumi-1.html",
+      "reason": "not-machine-readable"
+    },
+    {
+      "ward": "台東区",
+      "title": "【台東区】首都高速上野出口にある交差点の信号サイクル",
+      "url": "https://www.shingou-saikuru.com/2018/06/ueno-660-02.html",
+      "reason": "not-machine-readable"
+    },
+    {
+      "ward": "墨田区",
+      "title": "【墨田区】両国一丁目交差点の信号サイクル",
+      "url": "https://www.shingou-saikuru.com/2021/08/Ryogoku-1.html",
+      "reason": "not-machine-readable"
+    },
+    {
+      "ward": "墨田区",
+      "title": "【墨田区】錦糸町駅前交差点の信号サイクル。京葉道路×四ツ目通り。",
+      "url": "https://www.shingou-saikuru.com/2021/10/kinshicho-sta.html",
+      "reason": "not-machine-readable"
+    },
+    {
+      "ward": "墨田区",
+      "title": "両国二丁目交差点の信号サイクル【墨田区】",
+      "url": "https://www.shingou-saikuru.com/2018/07/ryogoku-2.html",
+      "reason": "not-machine-readable"
+    },
+    {
+      "ward": "墨田区",
+      "title": "総武線側、両国駅西口交差点の信号サイクル【墨田区】",
+      "url": "https://www.shingou-saikuru.com/2021/01/ryogoku-sta-w.html",
+      "reason": "not-machine-readable"
+    },
+    {
+      "ward": "江東区",
+      "title": "【江東区】亀戸駅前交差点の信号サイクル。京葉道路×明治通り。",
+      "url": "https://www.shingou-saikuru.com/2018/08/kameido-sta.html",
+      "reason": "not-machine-readable"
+    },
+    {
+      "ward": "江東区",
+      "title": "【江東区】千石橋北交差点の信号サイクル。新木場駅の南西側。",
+      "url": "https://www.shingou-saikuru.com/2018/08/sengoku-brdg-n.html",
+      "reason": "already-manually-curated"
+    },
+    {
+      "ward": "江東区",
+      "title": "【江東区】意外と複雑！枝川一丁目交差点の信号サイクル",
+      "url": "https://www.shingou-saikuru.com/2020/10/edagawa-1.html",
+      "reason": "already-manually-curated"
+    },
+    {
+      "ward": "江東区",
+      "title": "【江東区】木場五丁目交差点の信号サイクル",
+      "url": "https://www.shingou-saikuru.com/2018/08/kiba-5.html",
+      "reason": "already-manually-curated"
+    },
+    {
+      "ward": "江東区",
+      "title": "【江東区】東京ビッグサイト前交差点の信号サイクル",
+      "url": "https://www.shingou-saikuru.com/2018/08/tokyo-big-sight.html",
+      "reason": "already-manually-curated"
+    },
+    {
+      "ward": "江東区",
+      "title": "【江東区】東京ビッグサイト正門交差点の信号サイクル",
+      "url": "https://www.shingou-saikuru.com/2018/08/tokyo-big-sight-seimon.html",
+      "reason": "already-manually-curated"
+    },
+    {
+      "ward": "江東区",
+      "title": "【江東区】東京湾岸警察署前交差点の信号サイクル",
+      "url": "https://www.shingou-saikuru.com/2020/10/tokyo-wangan-police.html",
+      "reason": "already-manually-curated"
+    },
+    {
+      "ward": "江東区",
+      "title": "【江東区】深川暁橋南交差点の信号サイクル【歩車分離式】",
+      "url": "https://www.shingou-saikuru.com/2020/10/fukagawa-akatsukibashi-s.html",
+      "reason": "not-machine-readable"
+    },
+    {
+      "ward": "江東区",
+      "title": "【江東区】豊洲駅前交差点の信号サイクル",
+      "url": "https://www.shingou-saikuru.com/2020/10/toyosu-sta.html",
+      "reason": "already-manually-curated"
+    },
+    {
+      "ward": "江東区",
+      "title": "【江東区】首都高速木場出入口にある交差点の信号サイクル",
+      "url": "https://www.shingou-saikuru.com/2018/08/expwy-kiba-ent.html",
+      "reason": "already-manually-curated"
+    },
+    {
+      "ward": "江東区",
+      "title": "【江東区】駅の真上、森下駅前交差点の信号サイクル【都営地下鉄の駅】",
+      "url": "https://www.shingou-saikuru.com/2018/08/morishita-sta.html",
+      "reason": "already-manually-curated"
+    },
+    {
+      "ward": "江東区",
+      "title": "【江東区】高森公園の北側にある交差点の信号サイクル",
+      "url": "https://www.shingou-saikuru.com/2018/08/fukagawa-771-202.html",
+      "reason": "already-manually-curated"
+    },
+    {
+      "ward": "江東区",
+      "title": "東京ビッグサイト東交差点の信号サイクル",
+      "url": "https://www.shingou-saikuru.com/2018/08/tokyo-big-sight-e.html",
+      "reason": "already-manually-curated"
+    },
+    {
+      "ward": "品川区",
+      "title": "【品川区】JR大崎駅西口の前にある横断路の信号サイクル",
+      "url": "https://www.shingou-saikuru.com/2021/08/osaki-217-69.html",
+      "reason": "not-machine-readable"
+    },
+    {
+      "ward": "品川区",
+      "title": "【品川区】大崎広小路交差点の信号サイクル",
+      "url": "https://www.shingou-saikuru.com/2021/07/osaki-hirokoji.html",
+      "reason": "not-machine-readable"
+    },
+    {
+      "ward": "品川区",
+      "title": "【品川区】左折の取り締まりが多い、大崎警察署前の1つ南東側の交差点の信号サイクル",
+      "url": "https://www.shingou-saikuru.com/2021/07/osaki-217-50.html",
+      "reason": "not-machine-readable"
+    },
+    {
+      "ward": "品川区",
+      "title": "【品川区】目黒駅の南西側にある交差点の信号サイクル",
+      "url": "https://www.shingou-saikuru.com/2018/09/osaki-217-02.html",
+      "reason": "not-machine-readable"
+    },
+    {
+      "ward": "目黒区",
+      "title": "【目黒区】太陽教育スポーツセンター付近にある交差点の信号サイクル",
+      "url": "https://www.shingou-saikuru.com/2021/08/himonya-330-65.html",
+      "reason": "not-machine-readable"
+    },
+    {
+      "ward": "世田谷区",
+      "title": "【世田谷区】北沢タウンホール交差点の信号サイクル。北側は停止禁止部分あり。",
+      "url": "https://www.shingou-saikuru.com/2022/01/kitazawa-town-hall.html",
+      "reason": "not-machine-readable"
+    },
+    {
+      "ward": "世田谷区",
+      "title": "【世田谷区】千歳烏山駅入口交差点の信号サイクル",
+      "url": "https://www.shingou-saikuru.com/2018/12/chitosekarasuyama-sta-ent.html",
+      "reason": "not-machine-readable"
+    },
+    {
+      "ward": "世田谷区",
+      "title": "【世田谷区】和田堀給水所東・大原2丁目6付近の交差点の信号サイクル",
+      "url": "https://www.shingou-saikuru.com/2022/01/kitazawa-326-110.html",
+      "reason": "not-machine-readable"
+    },
+    {
+      "ward": "世田谷区",
+      "title": "【世田谷区】大原二丁目交差点の信号サイクル。井の頭通り×環七通り。",
+      "url": "https://www.shingou-saikuru.com/2020/11/ohara-2.html",
+      "reason": "not-machine-readable"
+    },
+    {
+      "ward": "世田谷区",
+      "title": "【世田谷区】大原交差点の信号サイクル。甲州街道×環七通り。",
+      "url": "https://www.shingou-saikuru.com/2018/12/ohara.html",
+      "reason": "not-machine-readable"
+    },
+    {
+      "ward": "世田谷区",
+      "title": "【世田谷区】宮前橋交差点の信号サイクル。環七通り×梅丘通り。北西方向先発の時差式。",
+      "url": "https://www.shingou-saikuru.com/2021/12/miyamaebashi.html",
+      "reason": "not-machine-readable"
+    },
+    {
+      "ward": "世田谷区",
+      "title": "【世田谷区】松原交差点の信号サイクル。甲州街道×井の頭通り。",
+      "url": "https://www.shingou-saikuru.com/2018/12/matsubara-setagaya.html",
+      "reason": "not-machine-readable"
+    },
+    {
+      "ward": "世田谷区",
+      "title": "【世田谷区】環七通りと赤堤通りを行き来するための交差点・その1つ北側の交差点の信号サイクル",
+      "url": "https://www.shingou-saikuru.com/2021/12/kitazawa-326-11.html",
+      "reason": "not-machine-readable"
+    },
+    {
+      "ward": "世田谷区",
+      "title": "【世田谷区】環八船橋の1つ南東側の交差点の信号サイクル",
+      "url": "https://www.shingou-saikuru.com/2022/03/seijo-328-15.html",
+      "reason": "not-machine-readable"
+    },
+    {
+      "ward": "世田谷区",
+      "title": "【世田谷区】砧二丁目交差点の信号サイクル。環八通り×城山通り。",
+      "url": "https://www.shingou-saikuru.com/2021/03/kinuta-2.html",
+      "reason": "cycle-out-of-range"
+    },
+    {
+      "ward": "世田谷区",
+      "title": "【世田谷区】若林踏切交差点の信号サイクル",
+      "url": "https://www.shingou-saikuru.com/2022/02/wakabayashi-crossing.html",
+      "reason": "not-machine-readable"
+    },
+    {
+      "ward": "世田谷区",
+      "title": "千歳船橋駅の前にある交差点の信号サイクル",
+      "url": "https://www.shingou-saikuru.com/2020/12/chitose-funabashi-sta.html",
+      "reason": "not-machine-readable"
+    },
+    {
+      "ward": "渋谷区",
+      "title": "【渋谷区】京王新宿駅A1出入口付近にある横断路の信号サイクル",
+      "url": "https://www.shingou-saikuru.com/2021/10/harajuku-332-46.html",
+      "reason": "not-machine-readable"
+    },
+    {
+      "ward": "渋谷区",
+      "title": "【渋谷区】代々木上原駅南交差点の信号サイクル",
+      "url": "https://www.shingou-saikuru.com/2020/10/yoyogi-uehara.html",
+      "reason": "not-machine-readable"
+    },
+    {
+      "ward": "渋谷区",
+      "title": "【渋谷区】勤労福祉会館前交差点の信号サイクル",
+      "url": "https://www.shingou-saikuru.com/2021/08/workers-welfare-hall.html",
+      "reason": "not-machine-readable"
+    },
+    {
+      "ward": "渋谷区",
+      "title": "【渋谷区】外苑橋交差点(北側)の信号サイクル",
+      "url": "https://www.shingou-saikuru.com/2020/11/gaien-bridge-n.html",
+      "reason": "not-machine-readable"
+    },
+    {
+      "ward": "渋谷区",
+      "title": "【渋谷区】外苑橋交差点(南側)の信号サイクル",
+      "url": "https://www.shingou-saikuru.com/2020/12/gaien-bridge-s.html",
+      "reason": "not-machine-readable"
+    },
+    {
+      "ward": "渋谷区",
+      "title": "【渋谷区】富ヶ谷交差点の信号サイクル【0.5秒単位の制御？】",
+      "url": "https://www.shingou-saikuru.com/2020/08/tomigaya.html",
+      "reason": "not-machine-readable"
+    },
+    {
+      "ward": "渋谷区",
+      "title": "【渋谷区】広尾駅の南側。広尾橋交差点の信号サイクル",
+      "url": "https://www.shingou-saikuru.com/2021/08/hiroobashi.html",
+      "reason": "not-machine-readable"
+    },
+    {
+      "ward": "渋谷区",
+      "title": "【渋谷区】東大裏交差点の信号サイクル",
+      "url": "https://www.shingou-saikuru.com/2021/08/todai-ura.html",
+      "reason": "not-machine-readable"
+    },
+    {
+      "ward": "渋谷区",
+      "title": "【渋谷区】歩行者は南北横断不可？南平台交差点の信号サイクル。",
+      "url": "https://www.shingou-saikuru.com/2021/07/nanpeidai.html",
+      "reason": "not-machine-readable"
+    },
+    {
+      "ward": "渋谷区",
+      "title": "【渋谷区】甲州街道上り・本線側道合流地点の信号サイクル",
+      "url": "https://www.shingou-saikuru.com/2021/07/yoyogi-333-57.html",
+      "reason": "not-machine-readable"
+    },
+    {
+      "ward": "渋谷区",
+      "title": "【渋谷区】甲州街道下り線と首都高速幡ヶ谷出口合流の信号サイクル",
+      "url": "https://www.shingou-saikuru.com/2021/09/yoyogi-333-56.html",
+      "reason": "not-machine-readable"
+    },
+    {
+      "ward": "渋谷区",
+      "title": "【渋谷区】神南郵便局前交差点の信号サイクル",
+      "url": "https://www.shingou-saikuru.com/2021/08/jin-nan-post-office.html",
+      "reason": "not-machine-readable"
+    },
+    {
+      "ward": "渋谷区",
+      "title": "【渋谷区】笹塚駅から徒歩5分。笹塚交差点の信号サイクル",
+      "url": "https://www.shingou-saikuru.com/2020/11/sasazuka.html",
+      "reason": "not-machine-readable"
+    },
+    {
+      "ward": "渋谷区",
+      "title": "【渋谷区】西側にトンネル。仙寿院交差点の信号サイクル",
+      "url": "https://www.shingou-saikuru.com/2021/04/senjuin.html",
+      "reason": "table-cycle-mismatch"
+    },
+    {
+      "ward": "渋谷区",
+      "title": "【渋谷区】道玄坂上交差点の信号サイクル",
+      "url": "https://www.shingou-saikuru.com/2019/01/dogenzaka-ue.html",
+      "reason": "not-machine-readable"
+    },
+    {
+      "ward": "渋谷区",
+      "title": "【渋谷区】道玄坂下交差点で右折禁止が解除されるとき、信号の動作はどうなる？",
+      "url": "https://www.shingou-saikuru.com/2019/01/dogenzaka-shita.html",
+      "reason": "not-machine-readable"
+    },
+    {
+      "ward": "渋谷区",
+      "title": "山手通りにある、富ヶ谷二丁目交差点の信号サイクル【渋谷区】",
+      "url": "https://www.shingou-saikuru.com/2021/03/tomigaya-2.html",
+      "reason": "table-cycle-mismatch"
+    },
+    {
+      "ward": "渋谷区",
+      "title": "幡ヶ谷駅前交差点の信号サイクル【渋谷区】",
+      "url": "https://www.shingou-saikuru.com/2019/01/hatagaya-sta.html",
+      "reason": "not-machine-readable"
+    },
+    {
+      "ward": "中野区",
+      "title": "【中野区】中野坂上交差点の信号サイクル。青梅街道×山手通り。",
+      "url": "https://www.shingou-saikuru.com/2021/07/nakanosakaue.html",
+      "reason": "not-machine-readable"
+    },
+    {
+      "ward": "中野区",
+      "title": "中野通り側はダブル信号！JR中央線、中野駅南口交差点の信号サイクル",
+      "url": "https://www.shingou-saikuru.com/2021/05/nakano-sta-s.html",
+      "reason": "not-machine-readable"
+    },
+    {
+      "ward": "板橋区",
+      "title": "【板橋区】都営三田線、高島平駅横断路の信号サイクル",
+      "url": "https://www.shingou-saikuru.com/2018/07/takashimadaira-sta.html",
+      "reason": "not-machine-readable"
+    },
+    {
+      "ward": "板橋区",
+      "title": "【板橋区】高島平二丁目交差点の信号サイクル",
+      "url": "https://www.shingou-saikuru.com/2019/07/takashimadaira-2.html",
+      "reason": "not-machine-readable"
+    },
+    {
+      "ward": "練馬区",
+      "title": "【練馬区】石神井公園前交差点の信号サイクル",
+      "url": "https://www.shingou-saikuru.com/2021/08/shakujii-park.html",
+      "reason": "not-machine-readable"
+    },
+    {
+      "ward": "練馬区",
+      "title": "商店街の狭い道の中にある、石神井公園駅入口交差点の信号サイクル",
+      "url": "https://www.shingou-saikuru.com/2021/04/shakujiikoen-sta.html",
+      "reason": "not-machine-readable"
+    },
+    {
+      "ward": "足立区",
+      "title": "【足立区】北千住駅西口交差点の信号サイクル。JR・地下鉄・東武・TXの駅。",
+      "url": "https://www.shingou-saikuru.com/2021/07/kitasenju-sta-w.html",
+      "reason": "not-machine-readable"
+    },
+    {
+      "ward": "足立区",
+      "title": "【足立区】北綾瀬駅前交差点の信号サイクル",
+      "url": "https://www.shingou-saikuru.com/2021/07/kitaayase-sta.html",
+      "reason": "not-machine-readable"
+    },
+    {
+      "ward": "足立区",
+      "title": "【足立区】江北駅ロータリーにある交差点の信号サイクル",
+      "url": "https://www.shingou-saikuru.com/2021/07/nishiarai-668-315.html",
+      "reason": "not-machine-readable"
+    },
+    {
+      "ward": "葛飾区",
+      "title": "【葛飾区】(平和橋通り・新小岩駅南口の出入口にある交差点)",
+      "url": "https://www.shingou-saikuru.com/2021/10/katsushika-776-08.html",
+      "reason": "not-machine-readable"
+    },
+    {
+      "ward": "葛飾区",
+      "title": "【葛飾区】(新小岩駅南口ロータリー北西側)",
+      "url": "https://www.shingou-saikuru.com/2021/10/katsushika-776-98.html",
+      "reason": "not-machine-readable"
+    },
+    {
+      "ward": "葛飾区",
+      "title": "【葛飾区】新小岩駅南口ロータリー南東側の信号サイクル",
+      "url": "https://www.shingou-saikuru.com/2021/10/katsushika-776-99.html",
+      "reason": "not-machine-readable"
+    },
+    {
+      "ward": "江戸川区",
+      "title": "【江戸川区】平井駅入口交差点の信号サイクル",
+      "url": "https://www.shingou-saikuru.com/2019/11/hirai-sta-ent.html",
+      "reason": "not-machine-readable"
+    }
+  ]
+}
