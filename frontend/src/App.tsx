@@ -577,8 +577,13 @@ function App() {
   }
 
   const looksLikeJapaneseAddress = (query: string) => {
-    const normalized = query.replace(/[０-９]/g, (digit) => String.fromCharCode(digit.charCodeAt(0) - 0xFEE0))
-    return /(?:〒?\d{3}-?\d{4}|[都道府県市区町村丁目番地号]|\d+[ー−–—-]\d+)/.test(normalized)
+    const normalized = query
+      .normalize('NFKC')
+      .replace(/[−–—ー]/g, '-')
+    const hasPostalCode = /〒?\s*\d{3}-?\d{4}/.test(normalized)
+    const hasNumberedAddressPart = /(?:\d+|[一二三四五六七八九十百]+)\s*(?:丁目|番地?|号)/.test(normalized)
+    const hasAdministrativeAreaAndStreetNumber = /[都道府県市区町村].*(?:\d+|[一二三四五六七八九十百]+)\s*-\s*\d+/.test(normalized)
+    return hasPostalCode || hasNumberedAddressPart || hasAdministrativeAreaAndStreetNumber
   }
 
   const searchGsiAddress = async (query: string): Promise<Position | null> => {
@@ -591,13 +596,17 @@ function App() {
   }
 
   const searchNominatim = async (query: string): Promise<Position | null> => {
-    const params = new URLSearchParams({ format: 'jsonv2', q: query, countrycodes: 'jp', limit: '1', 'accept-language': 'ja' })
+    const params = new URLSearchParams({ format: 'jsonv2', q: query, countrycodes: 'jp', limit: '5', 'accept-language': 'ja' })
     const response = await fetch(`https://nominatim.openstreetmap.org/search?${params.toString()}`)
     if (!response.ok) throw new Error(`Nominatim API error: ${response.status}`)
     const results = (await response.json()) as NominatimResult[]
     if (results.length === 0) return null
-    const lat = Number(results[0].lat)
-    const lng = Number(results[0].lon)
+    const normalizedQuery = query.normalize('NFKC').replace(/\s+/g, '').toLowerCase()
+    const bestResult = results.find((result) =>
+      result.display_name.normalize('NFKC').replace(/\s+/g, '').toLowerCase().includes(normalizedQuery),
+    ) ?? results[0]
+    const lat = Number(bestResult.lat)
+    const lng = Number(bestResult.lon)
     return Number.isFinite(lat) && Number.isFinite(lng) ? { lat, lng } : null
   }
 
@@ -618,13 +627,6 @@ function App() {
     }
 
     if (!result) result = await searchNominatim(trimmedQuery)
-    if (!result && !looksLikeJapaneseAddress(trimmedQuery)) {
-      try {
-        result = await searchGsiAddress(trimmedQuery)
-      } catch (error) {
-        console.warn('国土地理院の検索を利用できませんでした。', error)
-      }
-    }
 
     if (!result) {
       setGeneralErrorMessage(`検索結果がありません: ${trimmedQuery}`)
