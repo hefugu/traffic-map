@@ -15,10 +15,10 @@ jobs:
           set -u
           QUERY='[out:json][timeout:10];node["highway"="traffic_signals"](35.695,139.80,35.70,139.82);out body 1;'
           for URL in \
-            'https://overpass.osm.jp/api/interpreter' \
-            'https://lz4.overpass-api.de/api/interpreter' \
-            'https://z.overpass-api.de/api/interpreter' \
-            'https://maps.mail.ru/osm/tools/overpass/api/interpreter'
+            'https://overpass.kumi.systems/api/interpreter' \
+            'https://overpass.nchc.org.tw/api/interpreter' \
+            'https://gall.openstreetmap.de/api/interpreter' \
+            'https://lambert.openstreetmap.de/api/interpreter'
           do
             echo "=== $URL ==="
             rm -f /tmp/overpass-body.txt
