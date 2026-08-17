@@ -16,7 +16,7 @@ jobs:
         with:
           python-version: '3.12'
       - run: pip install requests beautifulsoup4
-      - run: python tools/audit_signal_blog.py
+      - run: python tools/audit_signal_blog_v2.py
       - uses: actions/upload-artifact@v4
         with:
           name: signal-blog-audit
