@@ -1,0 +1,34 @@
+name: Diagnose Overpass upstreams
+
+on:
+  push:
+    branches:
+      - diag/overpass-upstreams
+
+jobs:
+  diagnose:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Probe endpoints
+        shell: bash
+        run: |
+          set -u
+          QUERY='[out:json][timeout:10];node["highway"="traffic_signals"](35.695,139.80,35.70,139.82);out body 1;'
+          for URL in \
+            'https://overpass.openstreetmap.jp/api/interpreter' \
+            'https://overpass.private.coffee/api/interpreter' \
+            'https://overpass-api.de/api/interpreter' \
+            'https://maps.mail.ru/osm/tools/overpass/api/interpreter'
+          do
+            echo "=== $URL ==="
+            CODE=$(curl -sS --max-time 20 -o /tmp/overpass-body.txt -w '%{http_code}' \
+              -H 'Accept: application/json' \
+              -H 'Accept-Encoding: gzip, deflate' \
+              -H 'User-Agent: traffic-map/1.0 (https://traffic-map-delta.vercel.app)' \
+              -H 'Referer: https://traffic-map-delta.vercel.app/' \
+              --data-urlencode "data=$QUERY" \
+              "$URL" || true)
+            echo "status=$CODE"
+            head -c 300 /tmp/overpass-body.txt || true
+            echo
+          done
