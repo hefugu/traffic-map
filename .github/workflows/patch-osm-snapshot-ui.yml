@@ -18,10 +18,18 @@ jobs:
           node-version: 22
           cache: npm
           cache-dependency-path: frontend/package-lock.json
-      - name: Patch snapshot source UI
+      - name: Patch snapshot source UI and remove unused type
         run: |
           python - <<'PY'
           from pathlib import Path
+
+          service_path = Path('frontend/src/overpassService.ts')
+          service_text = service_path.read_text(encoding='utf-8')
+          unused = "type CompactSignalRow = [number, number, number, number]\n\n"
+          if service_text.count(unused) != 1:
+              raise SystemExit('Expected exactly one unused CompactSignalRow declaration')
+          service_path.write_text(service_text.replace(unused, '', 1), encoding='utf-8')
+
           path = Path('frontend/src/App.tsx')
           text = path.read_text(encoding='utf-8')
 
@@ -72,24 +80,27 @@ jobs:
       - run: npm --prefix frontend ci
       - run: npm --prefix frontend run build
       - run: npm --prefix frontend run lint
-      - name: Validate snapshot JSON
+      - name: Validate snapshot JSON and build output
         run: |
           node - <<'JS'
           const fs = require('fs')
-          const data = JSON.parse(fs.readFileSync('frontend/public/data/osm-traffic-signals-tokyo.json', 'utf8'))
+          const sourcePath = 'frontend/public/data/osm-traffic-signals-tokyo.json'
+          const builtPath = 'frontend/dist/data/osm-traffic-signals-tokyo.json'
+          const data = JSON.parse(fs.readFileSync(sourcePath, 'utf8'))
           if (data.schemaVersion !== 2) throw new Error('snapshot schema mismatch')
           if (!Array.isArray(data.signals) || data.signals.length < 1000) throw new Error('snapshot too small')
           if (data.signalCount !== data.signals.length) throw new Error('snapshot count mismatch')
-          console.log({ signalCount: data.signalCount, osmDataTimestamp: data.osmDataTimestamp })
+          if (!fs.existsSync(builtPath) || fs.statSync(builtPath).size < 100000) throw new Error('snapshot missing from Vite dist')
+          console.log({ signalCount: data.signalCount, osmDataTimestamp: data.osmDataTimestamp, builtBytes: fs.statSync(builtPath).size })
           JS
       - name: Commit validated app changes
         run: |
           git config user.name github-actions[bot]
           git config user.email 41898282+github-actions[bot]@users.noreply.github.com
-          git add frontend/src/App.tsx
+          git add frontend/src/App.tsx frontend/src/overpassService.ts
           if git diff --cached --quiet; then
             echo 'No app changes.'
           else
-            git commit -m 'Show OSM snapshot signal source'
+            git commit -m 'Use bundled OSM signal snapshot'
             git push
           fi
