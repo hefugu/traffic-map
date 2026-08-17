@@ -452,6 +452,7 @@ function App() {
   )
   const [routeErrorMessage, setRouteErrorMessage] = useState<string>('')
   const [signalErrorMessage, setSignalErrorMessage] = useState<string>('')
+  const [signalSnapshotDate, setSignalSnapshotDate] = useState<string | null>(null)
   const [loadingStartSearch, setLoadingStartSearch] = useState<boolean>(false)
   const [loadingDestinationSearch, setLoadingDestinationSearch] = useState<boolean>(false)
   const [loadingRoute, setLoadingRoute] = useState<boolean>(false)
@@ -494,6 +495,7 @@ function App() {
     setSignalFetchStatus('idle')
     setRouteErrorMessage('')
     setSignalErrorMessage('')
+    setSignalSnapshotDate(null)
     setLoadingRoute(false)
   }, [cancelSignalRequest])
 
@@ -640,6 +642,7 @@ function App() {
     setRouteInfo(walkingOnlyEvaluations[0].route)
     setSignalFetchStatus('loading')
     setSignalErrorMessage('')
+    setSignalSnapshotDate(null)
 
     try {
       const fetchedSignals = await fetchTrafficSignalsAroundRoutes(routes, { signal: controller.signal })
@@ -666,9 +669,11 @@ function App() {
       setRouteInfo(signalAwareEvaluations[0].route)
       if (snapshotSignal) {
         setSignalFetchStatus('snapshot')
-        setSignalErrorMessage(`信号位置はOpenStreetMapの保存データ${snapshotDate ? `（${snapshotDate}時点）` : ''}を使用しています。周期は実測値・地域平均を適用しています。`)
+        setSignalSnapshotDate(snapshotDate ?? null)
+        setSignalErrorMessage('')
       } else {
         setSignalFetchStatus('success')
+        setSignalSnapshotDate(null)
         setSignalErrorMessage('')
       }
     } catch (error) {
@@ -678,6 +683,7 @@ function App() {
       setRouteEvaluations(walkingOnlyEvaluations)
       setRouteInfo(walkingOnlyEvaluations[0].route)
       setSignalFetchStatus('error')
+      setSignalSnapshotDate(null)
       setSignalErrorMessage('信号情報を取得できなかったため、信号待ちを含まない経路を表示しています。')
     } finally {
       if (requestId === signalRequestIdRef.current) signalAbortControllerRef.current = null
@@ -896,10 +902,10 @@ function App() {
       >
         <header className="app-header">
           <div>
-            <h1 className="app-title">赤信号回避ナビ</h1>
+            <h1 className="app-title">信号周期ナビ</h1>
             <div className="app-subtitle">
               {startMode === 'gps'
-                ? `GPS追跡中${gpsAccuracyMeters !== null ? ` ±${Math.round(gpsAccuracyMeters)}m` : ''}`
+                ? `現在地${gpsAccuracyMeters !== null ? ` ±${Math.round(gpsAccuracyMeters)}m` : ''}`
                 : '手動出発地'}
             </div>
           </div>
@@ -934,7 +940,7 @@ function App() {
                 {loadingStartSearch ? '検索中...' : '検索'}
               </button>
               <button className="button button--secondary" type="button" onClick={useCurrentLocationAsStart}>
-                {startMode === 'gps' ? 'GPS追跡中' : 'GPS現在地'}
+                現在地
               </button>
             </div>
           </div>
@@ -959,7 +965,7 @@ function App() {
 
         <div className="panel-actions">
           <button className="button button--primary" type="button" onClick={() => { void fetchFastestRoute() }} disabled={routeButtonDisabled}>
-            {loadingRoute ? '候補取得中...' : '信号込みルート'}
+            {loadingRoute ? 'ルート検索中...' : 'ルート検索'}
           </button>
           <button
             className="button button--ghost"
@@ -1137,6 +1143,9 @@ function App() {
                 <div className="detail-row"><span className="detail-label">出発地</span><span className="detail-value coordinates">{startPosition ? `${startPosition.lat.toFixed(5)}, ${startPosition.lng.toFixed(5)}` : '未設定'}</span></div>
                 <div className="detail-row"><span className="detail-label">目的地</span><span className="detail-value coordinates">{destinationPosition ? `${destinationPosition.lat.toFixed(5)}, ${destinationPosition.lng.toFixed(5)}` : '未設定'}</span></div>
               </div>
+              {signalFetchStatus === 'snapshot' && (
+                <p className="detail-note">信号位置はOpenStreetMapの保存データ{signalSnapshotDate ? `（${signalSnapshotDate}時点）` : ''}を使用しています。周期は実測値・地域平均を適用しています。</p>
+              )}
               <p className="detail-note">実測地点は個別値を優先します。信頼できる地域情報がある場合だけ地域平均を使い、それ以外は「既存実測データ全体平均」と明示して使用します。</p>
             </div>
           </details>
@@ -1208,7 +1217,7 @@ function App() {
         {currentLocation && (
           <Marker position={[currentLocation.lat, currentLocation.lng]} icon={currentLocationIcon}>
             <Popup>
-              GPS現在地{gpsAccuracyMeters !== null ? `（精度 ±${Math.round(gpsAccuracyMeters)}m）` : ''}
+              現在地{gpsAccuracyMeters !== null ? `（精度 ±${Math.round(gpsAccuracyMeters)}m）` : ''}
             </Popup>
           </Marker>
         )}
