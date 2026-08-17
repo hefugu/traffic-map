@@ -9,6 +9,8 @@ export type MeasuredSignalProfile = {
   crossings: MeasuredCrossingTiming[]
   lat?: number
   lng?: number
+  ward?: string
+  osmNodeIds?: readonly number[]
   noPedestrianCrossing?: boolean
   sourceUrl: string
   note?: string
@@ -17,11 +19,15 @@ export type MeasuredSignalProfile = {
 // Measurements collected from 都内信号サイクルブログ.
 // Signal timings can change by weekday, time of day and traffic control,
 // so these values are treated as measured reference data rather than live phase data.
+//
+// osmNodeIds is intentionally optional. Only IDs that have been positively verified
+// against OpenStreetMap should be added; unknown IDs must not be guessed.
 export const MEASURED_SIGNAL_PROFILES: MeasuredSignalProfile[] = [
   {
     name: '東京ビッグサイト東',
     lat: 35.6343019,
     lng: 139.7987797,
+    ward: '江東区',
     cycleSeconds: 150,
     crossings: [
       { greenSeconds: 31, blinkSeconds: 10 },
@@ -33,6 +39,7 @@ export const MEASURED_SIGNAL_PROFILES: MeasuredSignalProfile[] = [
     name: '亀戸駅前',
     lat: 35.696575,
     lng: 139.825765,
+    ward: '江東区',
     cycleSeconds: 157,
     crossings: [],
     noPedestrianCrossing: true,
@@ -43,6 +50,7 @@ export const MEASURED_SIGNAL_PROFILES: MeasuredSignalProfile[] = [
     name: '豊洲駅前',
     lat: 35.654525,
     lng: 139.796565,
+    ward: '江東区',
     cycleSeconds: 149.5,
     crossings: [
       { greenSeconds: 33, blinkSeconds: 10 },
@@ -55,6 +63,7 @@ export const MEASURED_SIGNAL_PROFILES: MeasuredSignalProfile[] = [
     name: '木場五丁目',
     lat: 35.6694401,
     lng: 139.8057602,
+    ward: '江東区',
     cycleSeconds: 138.5,
     crossings: [
       { greenSeconds: 39.5, blinkSeconds: 10 },
@@ -67,6 +76,7 @@ export const MEASURED_SIGNAL_PROFILES: MeasuredSignalProfile[] = [
     name: '枝川一丁目',
     lat: 35.658359,
     lng: 139.802222,
+    ward: '江東区',
     cycleSeconds: 130,
     crossings: [
       { greenSeconds: 60, blinkSeconds: 10 },
@@ -80,6 +90,7 @@ export const MEASURED_SIGNAL_PROFILES: MeasuredSignalProfile[] = [
     name: '東京湾岸警察署前',
     lat: 35.619131,
     lng: 139.774891,
+    ward: '江東区',
     cycleSeconds: 110,
     crossings: [
       { greenSeconds: 52, blinkSeconds: 6 },
@@ -91,6 +102,7 @@ export const MEASURED_SIGNAL_PROFILES: MeasuredSignalProfile[] = [
     name: '東京ビッグサイト前',
     lat: 35.632283,
     lng: 139.795195,
+    ward: '江東区',
     cycleSeconds: 150,
     crossings: [
       { greenSeconds: 31, blinkSeconds: 10 },
@@ -102,6 +114,7 @@ export const MEASURED_SIGNAL_PROFILES: MeasuredSignalProfile[] = [
     name: '東京ビッグサイト正門',
     lat: 35.630545,
     lng: 139.791979,
+    ward: '江東区',
     cycleSeconds: 147,
     crossings: [
       { greenSeconds: 54, blinkSeconds: 7 },
@@ -113,6 +126,7 @@ export const MEASURED_SIGNAL_PROFILES: MeasuredSignalProfile[] = [
     name: '森下駅前',
     lat: 35.688022,
     lng: 139.798283,
+    ward: '江東区',
     cycleSeconds: 119,
     crossings: [
       { greenSeconds: 28.5, blinkSeconds: 10 },
@@ -123,6 +137,7 @@ export const MEASURED_SIGNAL_PROFILES: MeasuredSignalProfile[] = [
   },
   {
     name: '高森公園北側',
+    ward: '江東区',
     cycleSeconds: 60,
     crossings: [
       { greenSeconds: 22, blinkSeconds: 4 },
@@ -133,6 +148,7 @@ export const MEASURED_SIGNAL_PROFILES: MeasuredSignalProfile[] = [
   },
   {
     name: '首都高・木場出入口',
+    ward: '江東区',
     cycleSeconds: 119.5,
     crossings: [
       { greenSeconds: 32.5, blinkSeconds: 10 },
@@ -145,6 +161,7 @@ export const MEASURED_SIGNAL_PROFILES: MeasuredSignalProfile[] = [
     name: '千石橋北',
     lat: 35.644444,
     lng: 139.825325,
+    ward: '江東区',
     cycleSeconds: 140,
     crossings: [
       { greenSeconds: 35, blinkSeconds: 10 },
@@ -154,6 +171,7 @@ export const MEASURED_SIGNAL_PROFILES: MeasuredSignalProfile[] = [
   },
   {
     name: '深川暁橋南',
+    ward: '江東区',
     cycleSeconds: 85,
     crossings: [
       { greenSeconds: 26, blinkSeconds: 10 },

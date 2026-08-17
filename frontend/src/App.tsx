@@ -35,6 +35,7 @@ import {
 
 type SignalDisplayMode = 'routeOnly' | 'all'
 type SignalFetchStatus = 'idle' | 'loading' | 'success' | 'error'
+type StartMode = 'gps' | 'manual'
 
 type TrafficSignal = {
   id: number
@@ -68,6 +69,9 @@ const SIGNAL_SYNC_STORAGE_VERSION = 2
 const SIGNAL_SYNC_STORAGE_KEY = 'traffic-map.signal-synchronizations.v2'
 const LEGACY_SIGNAL_SYNC_STORAGE_KEY = 'traffic-map.signal-green-started-at.v1'
 const SIGNAL_SYNC_STALE_MS = 10 * 60 * 1000
+const AUTO_REROUTE_MOVEMENT_METERS = 25
+const AUTO_REROUTE_OFF_ROUTE_METERS = 30
+const AUTO_REROUTE_COOLDOWN_MS = 10_000
 const SIGNAL_STATE_COLORS = {
   green: '#16a34a',
   blinking: '#eab308',
@@ -89,7 +93,8 @@ function getSignalLabel(type: SignalType) {
 function getTimingSourceLabel(resolution: ResolvedSignalTiming) {
   if (resolution.source === 'measured') return '実測'
   if (resolution.source === 'no-pedestrian-crossing') return '横断歩道なし'
-  return '実測平均'
+  if (resolution.averageScope === 'regional') return '地域実測平均'
+  return '全体実測平均'
 }
 
 function getSignalDataBadgeColor(resolution: ResolvedSignalTiming) {
@@ -101,7 +106,8 @@ function getSignalDataBadgeColor(resolution: ResolvedSignalTiming) {
 function getSignalDataBadgeLabel(resolution: ResolvedSignalTiming) {
   if (resolution.source === 'measured') return '実'
   if (resolution.source === 'no-pedestrian-crossing') return '無'
-  return '平'
+  if (resolution.averageScope === 'regional') return '地'
+  return '全'
 }
 
 function getSignalMarkerIcon(
@@ -399,12 +405,20 @@ function evaluateRoutes(routes: RouteInfo[], signalGroups: SignalGroup[]) {
     .sort((a, b) => a.totalSeconds - b.totalSeconds)
 }
 
-function MapFocus({ center }: { center: Position | null }) {
+function MapFocus({ center, requestId }: { center: Position | null; requestId: number }) {
   const map = useMap()
+  const latestCenterRef = useRef(center)
+
   useEffect(() => {
-    if (!center) return
-    map.setView([center.lat, center.lng], Math.max(map.getZoom(), 15))
-  }, [center, map])
+    latestCenterRef.current = center
+  }, [center])
+
+  useEffect(() => {
+    const target = latestCenterRef.current
+    if (!target) return
+    map.setView([target.lat, target.lng], Math.max(map.getZoom(), 15))
+  }, [map, requestId])
+
   return null
 }
 
@@ -417,6 +431,8 @@ function MapZoomTracker({ onZoomChange }: { onZoomChange: (zoom: number) => void
 
 function App() {
   const [currentLocation, setCurrentLocation] = useState<Position | null>(null)
+  const [gpsAccuracyMeters, setGpsAccuracyMeters] = useState<number | null>(null)
+  const [startMode, setStartMode] = useState<StartMode>('gps')
   const [startPosition, setStartPosition] = useState<Position | null>(null)
   const [destinationPosition, setDestinationPosition] = useState<Position | null>(null)
   const [startQuery, setStartQuery] = useState<string>('')
@@ -430,6 +446,7 @@ function App() {
   const [legendOpen, setLegendOpen] = useState(false)
   const [controlPanelOpen, setControlPanelOpen] = useState(true)
   const [mapZoom, setMapZoom] = useState(INITIAL_MAP_ZOOM)
+  const [mapFocusRequestId, setMapFocusRequestId] = useState(0)
   const [generalErrorMessage, setGeneralErrorMessage] = useState<string>(() =>
     typeof navigator !== 'undefined' && navigator.geolocation ? '' : 'このブラウザは位置情報に対応していません。',
   )
@@ -445,7 +462,9 @@ function App() {
   const signalAbortControllerRef = useRef<AbortController | null>(null)
   const signalRequestIdRef = useRef(0)
   const routeRequestIdRef = useRef(0)
-  const hasExplicitStartRef = useRef(false)
+  const hasInitialGpsFixRef = useRef(false)
+  const lastReroutePositionRef = useRef<Position | null>(null)
+  const lastAutoRerouteAtRef = useRef(0)
   const controlPanelOpenButtonRef = useRef<HTMLButtonElement | null>(null)
   const controlPanelCloseButtonRef = useRef<HTMLButtonElement | null>(null)
 
@@ -500,6 +519,40 @@ function App() {
     return () => document.removeEventListener('keydown', handleEscapeKey)
   }, [closeControlPanel, controlPanelOpen])
 
+  useEffect(() => {
+    if (!navigator.geolocation) return
+    let active = true
+    const watchId = navigator.geolocation.watchPosition(
+      (position) => {
+        if (!active) return
+        const gpsPosition = { lat: position.coords.latitude, lng: position.coords.longitude }
+        setCurrentLocation(gpsPosition)
+        setGpsAccuracyMeters(Number.isFinite(position.coords.accuracy) ? position.coords.accuracy : null)
+        if (startMode === 'gps') setStartPosition(gpsPosition)
+        if (!hasInitialGpsFixRef.current) {
+          hasInitialGpsFixRef.current = true
+          setMapFocusRequestId((current) => current + 1)
+        }
+        setGeneralErrorMessage('')
+      },
+      (error) => {
+        if (!active) return
+        console.error(error)
+        setGeneralErrorMessage('位置情報の継続取得に失敗しました。出発地を検索で指定できます。')
+      },
+      { enableHighAccuracy: true, timeout: 10000, maximumAge: 3000 },
+    )
+    return () => {
+      active = false
+      navigator.geolocation.clearWatch(watchId)
+    }
+  }, [startMode])
+
+  useEffect(() => () => {
+    routeRequestIdRef.current += 1
+    cancelSignalRequest()
+  }, [cancelSignalRequest])
+
   const handleSynchronizeSignalGroup = (group: SignalGroup, greenStartedAtMs: number) => {
     setNowMs(greenStartedAtMs)
     setSignalSynchronizations((current) => {
@@ -518,34 +571,6 @@ function App() {
       return next
     })
   }
-
-  useEffect(() => {
-    if (!navigator.geolocation) return
-    let active = true
-    navigator.geolocation.getCurrentPosition(
-      (pos) => {
-        if (!active) return
-        const gpsPosition = { lat: pos.coords.latitude, lng: pos.coords.longitude }
-        setCurrentLocation(gpsPosition)
-        if (!hasExplicitStartRef.current) {
-          resetRoutingState()
-          setStartPosition(gpsPosition)
-        }
-        setGeneralErrorMessage('')
-      },
-      (error) => {
-        if (!active) return
-        console.error(error)
-        setGeneralErrorMessage('位置情報の取得に失敗しました。出発地を検索で指定してください。')
-      },
-      { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 },
-    )
-    return () => {
-      active = false
-      routeRequestIdRef.current += 1
-      cancelSignalRequest()
-    }
-  }, [cancelSignalRequest, resetRoutingState])
 
   const searchPlace = async (query: string): Promise<Position | null> => {
     const trimmedQuery = query.trim()
@@ -570,12 +595,14 @@ function App() {
     try {
       const result = await searchPlace(startQuery)
       if (result) {
-        hasExplicitStartRef.current = true
+        setStartMode('manual')
+        lastReroutePositionRef.current = null
         resetRoutingState()
         setStartPosition(result)
+        setMapFocusRequestId((current) => current + 1)
       }
-    } catch (err) {
-      console.error(err)
+    } catch (error) {
+      console.error(error)
       setGeneralErrorMessage('出発地検索に失敗しました。')
     } finally {
       setLoadingStartSearch(false)
@@ -588,20 +615,19 @@ function App() {
     try {
       const result = await searchPlace(destinationQuery)
       if (result) {
+        lastReroutePositionRef.current = null
         resetRoutingState()
         setDestinationPosition(result)
       }
-    } catch (err) {
-      console.error(err)
+    } catch (error) {
+      console.error(error)
       setGeneralErrorMessage('目的地検索に失敗しました。')
     } finally {
       setLoadingDestinationSearch(false)
     }
   }
 
-  const signalGroups = createSignalGroups(signals)
-
-  const fetchSignalsForRoutes = async (routes: RouteInfo[]) => {
+  const fetchSignalsForRoutes = useCallback(async (routes: RouteInfo[]) => {
     if (routes.length === 0) return
 
     cancelSignalRequest()
@@ -621,7 +647,11 @@ function App() {
 
       const resolvedSignals: TrafficSignal[] = fetchedSignals.map((signal) => ({
         ...signal,
-        timingResolution: resolveSignalTiming(signal.lat, signal.lng),
+        timingResolution: resolveSignalTiming({
+          osmId: signal.id,
+          lat: signal.lat,
+          lng: signal.lng,
+        }),
       }))
       const resolvedSignalGroups = createSignalGroups(resolvedSignals)
       const signalAwareEvaluations = evaluateRoutes(routes, resolvedSignalGroups)
@@ -633,9 +663,9 @@ function App() {
       setRouteEvaluations(signalAwareEvaluations)
       setRouteInfo(signalAwareEvaluations[0].route)
       setSignalFetchStatus('success')
-    } catch (err) {
+    } catch (error) {
       if (requestId !== signalRequestIdRef.current || controller.signal.aborted) return
-      console.error(err)
+      console.error(error)
       setSignals([])
       setRouteEvaluations(walkingOnlyEvaluations)
       setRouteInfo(walkingOnlyEvaluations[0].route)
@@ -644,14 +674,13 @@ function App() {
     } finally {
       if (requestId === signalRequestIdRef.current) signalAbortControllerRef.current = null
     }
-  }
+  }, [cancelSignalRequest])
 
-  const fetchFastestRoute = async () => {
-    if (!startPosition || !destinationPosition) {
-      setRouteErrorMessage('出発地と目的地を設定してください。')
-      return
-    }
-
+  const calculateFastestRoute = useCallback(async (
+    routeStart: Position,
+    routeDestination: Position,
+    autoReroute = false,
+  ) => {
     const requestId = routeRequestIdRef.current + 1
     routeRequestIdRef.current = requestId
     cancelSignalRequest()
@@ -659,13 +688,18 @@ function App() {
     setGeneralErrorMessage('')
     setRouteErrorMessage('')
     setSignalErrorMessage('')
-    setSignalFetchStatus('idle')
-    setCandidateRoutes([])
-    setSignals([])
-    setRouteInfo(null)
-    setRouteEvaluations([])
+    lastReroutePositionRef.current = routeStart
+
+    if (!autoReroute) {
+      setSignalFetchStatus('idle')
+      setCandidateRoutes([])
+      setSignals([])
+      setRouteInfo(null)
+      setRouteEvaluations([])
+    }
+
     try {
-      const routes = await fetchPedestrianRoutes(startPosition, destinationPosition)
+      const routes = await fetchPedestrianRoutes(routeStart, routeDestination)
       if (requestId !== routeRequestIdRef.current) return
       const walkingOnlyEvaluations = evaluateRoutes(routes, [])
       if (walkingOnlyEvaluations.length === 0) throw new Error('比較できる徒歩ルートがありません。')
@@ -674,32 +708,79 @@ function App() {
       setRouteInfo(walkingOnlyEvaluations[0].route)
       setLoadingRoute(false)
       void fetchSignalsForRoutes(routes)
-    } catch (err) {
+    } catch (error) {
       if (requestId !== routeRequestIdRef.current) return
-      console.error(err)
-      setRouteErrorMessage('徒歩ルートの取得に失敗しました。')
+      console.error(error)
+      setRouteErrorMessage(autoReroute ? '現在地からの自動ルート再計算に失敗しました。' : '徒歩ルートの取得に失敗しました。')
     } finally {
       if (requestId === routeRequestIdRef.current) setLoadingRoute(false)
     }
+  }, [cancelSignalRequest, fetchSignalsForRoutes])
+
+  const fetchFastestRoute = async () => {
+    if (!startPosition || !destinationPosition) {
+      setRouteErrorMessage('出発地と目的地を設定してください。')
+      return
+    }
+    if (startMode === 'gps') {
+      lastAutoRerouteAtRef.current = Date.now()
+    }
+    await calculateFastestRoute(startPosition, destinationPosition)
   }
+
+  useEffect(() => {
+    if (
+      startMode !== 'gps'
+      || !currentLocation
+      || !destinationPosition
+      || !routeInfo
+      || loadingRoute
+    ) {
+      return
+    }
+
+    const previousReroutePosition = lastReroutePositionRef.current
+    if (!previousReroutePosition) {
+      lastReroutePositionRef.current = currentLocation
+      return
+    }
+
+    const movedMeters = distanceMeters(previousReroutePosition, currentLocation)
+    const offRouteMeters = distanceToRouteMeters(currentLocation, routeInfo.coordinates)
+    const now = Date.now()
+    const cooldownReady = now - lastAutoRerouteAtRef.current >= AUTO_REROUTE_COOLDOWN_MS
+    const shouldReroute = movedMeters >= AUTO_REROUTE_MOVEMENT_METERS
+      || offRouteMeters >= AUTO_REROUTE_OFF_ROUTE_METERS
+
+    if (!cooldownReady || !shouldReroute) return
+
+    lastAutoRerouteAtRef.current = now
+    lastReroutePositionRef.current = currentLocation
+    void calculateFastestRoute(currentLocation, destinationPosition, true)
+  }, [calculateFastestRoute, currentLocation, destinationPosition, loadingRoute, routeInfo, startMode])
 
   const useCurrentLocationAsStart = () => {
     if (!currentLocation) {
       setGeneralErrorMessage('現在地が取得できていません。')
       return
     }
-    hasExplicitStartRef.current = true
+    setStartMode('gps')
+    lastReroutePositionRef.current = null
     resetRoutingState()
     setStartPosition(currentLocation)
     setStartQuery('')
     setGeneralErrorMessage('')
+    setMapFocusRequestId((current) => current + 1)
   }
 
+  const signalGroups = createSignalGroups(signals)
   const vehicleCount = signals.filter((signal) => signal.type === 'vehicle').length
   const pedestrianCount = signals.filter((signal) => signal.type === 'pedestrian').length
   const bothCount = signals.filter((signal) => signal.type === 'both').length
   const unknownCount = signals.filter((signal) => signal.type === 'unknown').length
   const measuredCount = signals.filter((signal) => signal.timingResolution.source === 'measured').length
+  const regionalAverageCount = signals.filter((signal) => signal.timingResolution.averageScope === 'regional').length
+  const globalAverageCount = signals.filter((signal) => signal.timingResolution.averageScope === 'global').length
   const bestEvaluation = routeEvaluations[0] ?? null
   const routeNearbyGroups = bestEvaluation?.signalGroups ?? []
   const routeNearbyGroupIds = new Set(routeNearbyGroups.map((group) => group.id))
@@ -760,6 +841,7 @@ function App() {
       return next
     })
   }
+
   const mapCenter = startPosition ?? currentLocation ?? { lat: 35.6812, lng: 139.7671 }
   const defaultExpectedDelaySeconds = getExpectedSignalDelay(DEFAULT_SIGNAL_TIMING)
   const defaultRedSeconds = getSignalRedSeconds(DEFAULT_SIGNAL_TIMING)
@@ -803,7 +885,14 @@ function App() {
         inert={!controlPanelOpen}
       >
         <header className="app-header">
-          <h1 className="app-title">赤信号回避ナビ</h1>
+          <div>
+            <h1 className="app-title">赤信号回避ナビ</h1>
+            <div className="app-subtitle">
+              {startMode === 'gps'
+                ? `GPS追跡中${gpsAccuracyMeters !== null ? ` ±${Math.round(gpsAccuracyMeters)}m` : ''}`
+                : '手動出発地'}
+            </div>
+          </div>
           <button
             ref={controlPanelCloseButtonRef}
             className="panel-close-button"
@@ -835,7 +924,7 @@ function App() {
                 {loadingStartSearch ? '検索中...' : '検索'}
               </button>
               <button className="button button--secondary" type="button" onClick={useCurrentLocationAsStart}>
-                GPS現在地
+                {startMode === 'gps' ? 'GPS追跡中' : 'GPS現在地'}
               </button>
             </div>
           </div>
@@ -859,7 +948,7 @@ function App() {
         </div>
 
         <div className="panel-actions">
-          <button className="button button--primary" type="button" onClick={fetchFastestRoute} disabled={routeButtonDisabled}>
+          <button className="button button--primary" type="button" onClick={() => { void fetchFastestRoute() }} disabled={routeButtonDisabled}>
             {loadingRoute ? '候補取得中...' : '信号込みルート'}
           </button>
           <button
@@ -974,6 +1063,8 @@ function App() {
                 <div className="detail-row"><span className="detail-label">取得信号群</span><span className="detail-value">{signalGroups.length}群</span></div>
                 <div className="detail-row"><span className="detail-label">信号本数</span><span className="detail-value">{signals.length}本</span></div>
                 <div className="detail-row"><span className="detail-label">実測値</span><span className="detail-value">{measuredCount}本</span></div>
+                <div className="detail-row"><span className="detail-label">地域平均</span><span className="detail-value">{regionalAverageCount}本</span></div>
+                <div className="detail-row"><span className="detail-label">全体平均</span><span className="detail-value">{globalAverageCount}本</span></div>
               </div>
               <div className="sync-actions">
                 <button
@@ -1021,10 +1112,14 @@ function App() {
             <summary className="disclosure-summary">技術情報</summary>
             <div className="disclosure-body">
               <div className="detail-list">
+                <div className="detail-row"><span className="detail-label">出発地モード</span><span className="detail-value">{startMode === 'gps' ? 'GPSリアルタイム追跡' : '手動指定'}</span></div>
+                <div className="detail-row"><span className="detail-label">GPS精度</span><span className="detail-value">{gpsAccuracyMeters !== null ? `±${Math.round(gpsAccuracyMeters)}m` : '未取得'}</span></div>
+                <div className="detail-row"><span className="detail-label">自動再計算</span><span className="detail-value">移動{AUTO_REROUTE_MOVEMENT_METERS}m / 逸脱{AUTO_REROUTE_OFF_ROUTE_METERS}m</span></div>
+                <div className="detail-row"><span className="detail-label">再計算cooldown</span><span className="detail-value">{AUTO_REROUTE_COOLDOWN_MS / 1000}秒</span></div>
                 <div className="detail-row"><span className="detail-label">既定周期</span><span className="detail-value">{DEFAULT_SIGNAL_TIMING.cycleSeconds}秒</span></div>
                 <div className="detail-row"><span className="detail-label">既定 青 / 点滅 / 赤</span><span className="detail-value">{DEFAULT_SIGNAL_TIMING.greenSeconds} / {DEFAULT_SIGNAL_TIMING.blinkSeconds} / {defaultRedSeconds}秒</span></div>
                 <div className="detail-row"><span className="detail-label">既定期待待ち</span><span className="detail-value">約{Math.round(defaultExpectedDelaySeconds)}秒</span></div>
-                <div className="detail-row"><span className="detail-label">実測マッチ</span><span className="detail-value">{MEASURED_SIGNAL_MATCH_DISTANCE_METERS}m以内</span></div>
+                <div className="detail-row"><span className="detail-label">実測マッチ</span><span className="detail-value">OSM ID優先 / 座標{MEASURED_SIGNAL_MATCH_DISTANCE_METERS}m以内</span></div>
                 <div className="detail-row"><span className="detail-label">取得範囲</span><span className="detail-value">候補{candidateRoutes.length}本の周囲{SIGNAL_CORRIDOR_RADIUS_METERS}m</span></div>
                 <div className="detail-row"><span className="detail-label">ルート判定</span><span className="detail-value">{ROUTE_SIGNAL_GROUP_DISTANCE_METERS}m</span></div>
                 <div className="detail-row"><span className="detail-label">グループ化</span><span className="detail-value">{SIGNAL_GROUP_DISTANCE_METERS}m</span></div>
@@ -1032,7 +1127,7 @@ function App() {
                 <div className="detail-row"><span className="detail-label">出発地</span><span className="detail-value coordinates">{startPosition ? `${startPosition.lat.toFixed(5)}, ${startPosition.lng.toFixed(5)}` : '未設定'}</span></div>
                 <div className="detail-row"><span className="detail-label">目的地</span><span className="detail-value coordinates">{destinationPosition ? `${destinationPosition.lat.toFixed(5)}, ${destinationPosition.lng.toFixed(5)}` : '未設定'}</span></div>
               </div>
-              <p className="detail-note">江東区の実測交差点を優先し、未計測地点には実測平均を使用します。</p>
+              <p className="detail-note">実測地点は個別値を優先します。信頼できる地域情報がある場合だけ地域平均を使い、それ以外は「既存実測データ全体平均」と明示して使用します。</p>
             </div>
           </details>
         </div>
@@ -1068,7 +1163,7 @@ function App() {
       </div>
 
       <MapContainer center={[mapCenter.lat, mapCenter.lng]} zoom={INITIAL_MAP_ZOOM} zoomControl={false} className="map-canvas">
-        <MapFocus center={startPosition ?? currentLocation} />
+        <MapFocus center={startPosition ?? currentLocation} requestId={mapFocusRequestId} />
         <MapZoomTracker onZoomChange={setMapZoom} />
         <ZoomControl position="topright" />
         <TileLayer attribution="&copy; OpenStreetMap contributors" url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" />
@@ -1100,7 +1195,13 @@ function App() {
             </>
           )}
         </Pane>
-        {currentLocation && <Marker position={[currentLocation.lat, currentLocation.lng]} icon={currentLocationIcon}><Popup>GPS現在地</Popup></Marker>}
+        {currentLocation && (
+          <Marker position={[currentLocation.lat, currentLocation.lng]} icon={currentLocationIcon}>
+            <Popup>
+              GPS現在地{gpsAccuracyMeters !== null ? `（精度 ±${Math.round(gpsAccuracyMeters)}m）` : ''}
+            </Popup>
+          </Marker>
+        )}
         {startPosition && <Marker position={[startPosition.lat, startPosition.lng]} icon={startIcon}><Popup>出発地</Popup></Marker>}
         {destinationPosition && <Marker position={[destinationPosition.lat, destinationPosition.lng]} icon={destinationIcon}><Popup>目的地</Popup></Marker>}
         {visibleSignalGroups.map((group) => {
@@ -1220,7 +1321,7 @@ function App() {
                   </div>
 
                   {timingResolution.source === 'measured-average' && (
-                    <div className="signal-popup-warning">この地点は実測平均周期を使用しているため、予測精度は低くなります。</div>
+                    <div className="signal-popup-warning">{timingResolution.label}を使用しています。個別実測より予測精度は低くなります。</div>
                   )}
 
                   {!timingResolution.noPedestrianCrossing && (
@@ -1249,6 +1350,7 @@ function App() {
                       <div>周期：{timingResolution.timing.cycleSeconds}秒</div>
                       <div>青：{Math.round(timingResolution.timing.greenSeconds)}秒 / 青点滅：{Math.round(timingResolution.timing.blinkSeconds)}秒</div>
                       <div>対象：{timingResolution.label}</div>
+                      {timingResolution.matchMethod && <div>データ選択：{timingResolution.matchMethod}</div>}
                       {timingResolution.matchDistanceMeters !== undefined && (
                         <div>実測地点との差：{Math.round(timingResolution.matchDistanceMeters)}m</div>
                       )}
