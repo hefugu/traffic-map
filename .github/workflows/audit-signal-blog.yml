@@ -6,8 +6,12 @@ on:
       - audit/all-signal-blog-points
   workflow_dispatch:
 
+permissions:
+  contents: write
+
 jobs:
   audit:
+    if: github.event_name == 'workflow_dispatch' || github.event.head_commit.message != 'Generate verified signal dataset'
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -17,8 +21,30 @@ jobs:
           python-version: '3.12'
       - run: pip install requests beautifulsoup4
       - run: python tools/audit_signal_blog_v3.py
+      - run: python tools/build_verified_signal_dataset.py
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - run: npm --prefix frontend ci
+      - run: npm --prefix frontend run build
+      - run: npm --prefix frontend run lint
       - uses: actions/upload-artifact@v4
         with:
           name: signal-blog-audit
-          path: signal-blog-audit/
+          path: |
+            signal-blog-audit/
+            frontend/src/measuredSignalTimings.generated.ts
           if-no-files-found: error
+      - name: Commit generated verified dataset
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add frontend/src/measuredSignalTimings.generated.ts signal-blog-audit/verified-summary.json
+          if git diff --cached --quiet; then
+            echo "No generated changes"
+          else
+            git commit -m "Generate verified signal dataset"
+            git push
+          fi
