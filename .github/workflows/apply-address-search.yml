@@ -52,7 +52,7 @@ jobs:
       - run: npm --prefix frontend run build
       - run: npm --prefix frontend run lint
       - name: Type-check Vercel geocode function
-        run: npx --yes tsc api/geocode.ts --noEmit --target ES2022 --module ESNext --moduleResolution Bundler --lib ES2022,DOM --skipLibCheck
+        run: ./frontend/node_modules/.bin/tsc api/geocode.ts --noEmit --target ES2022 --module ESNext --moduleResolution Bundler --lib ES2022,DOM --skipLibCheck
       - name: Commit validated changes
         run: |
           git config user.name github-actions[bot]
