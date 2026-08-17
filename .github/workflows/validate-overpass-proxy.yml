@@ -1,0 +1,21 @@
+name: Validate Overpass proxy
+
+on:
+  push:
+    branches:
+      - fix/vercel-overpass-proxy
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - run: npm --prefix frontend ci
+      - run: npm --prefix frontend run build
+      - run: npm --prefix frontend run lint
+      - run: ./frontend/node_modules/.bin/tsc api/overpass.ts --lib ES2022,DOM --module ESNext --moduleResolution Bundler --target ES2022 --noEmit
