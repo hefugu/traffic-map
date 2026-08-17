@@ -54,6 +54,8 @@ type SignalSynchronization = {
 }
 type SignalSynchronizations = Record<string, SignalSynchronization>
 type NominatimResult = { display_name: string; lat: string; lon: string }
+type GsiGeocodeResult = { lat: number; lng: number; label: string; provider: 'gsi' }
+type GsiGeocodeResponse = { results?: GsiGeocodeResult[] }
 type RouteEvaluation = {
   route: RouteInfo
   signalGroups: SignalGroup[]
@@ -574,21 +576,61 @@ function App() {
     })
   }
 
-  const searchPlace = async (query: string): Promise<Position | null> => {
-    const trimmedQuery = query.trim()
-    if (!trimmedQuery) {
-      setGeneralErrorMessage('検索キーワードを入力してください。')
-      return null
-    }
-    const params = new URLSearchParams({ format: 'json', q: trimmedQuery, countrycodes: 'jp', limit: '1' })
+  const looksLikeJapaneseAddress = (query: string) => {
+    const normalized = query.replace(/[０-９]/g, (digit) => String.fromCharCode(digit.charCodeAt(0) - 0xFEE0))
+    return /(?:〒?\d{3}-?\d{4}|[都道府県市区町村丁目番地号]|\d+[ー−–—-]\d+)/.test(normalized)
+  }
+
+  const searchGsiAddress = async (query: string): Promise<Position | null> => {
+    const response = await fetch(`/api/geocode?${new URLSearchParams({ q: query }).toString()}`)
+    if (!response.ok) return null
+    const data = (await response.json()) as GsiGeocodeResponse
+    const result = data.results?.[0]
+    if (!result || !Number.isFinite(result.lat) || !Number.isFinite(result.lng)) return null
+    return { lat: result.lat, lng: result.lng }
+  }
+
+  const searchNominatim = async (query: string): Promise<Position | null> => {
+    const params = new URLSearchParams({ format: 'jsonv2', q: query, countrycodes: 'jp', limit: '1', 'accept-language': 'ja' })
     const response = await fetch(`https://nominatim.openstreetmap.org/search?${params.toString()}`)
     if (!response.ok) throw new Error(`Nominatim API error: ${response.status}`)
     const results = (await response.json()) as NominatimResult[]
-    if (results.length === 0) {
+    if (results.length === 0) return null
+    const lat = Number(results[0].lat)
+    const lng = Number(results[0].lon)
+    return Number.isFinite(lat) && Number.isFinite(lng) ? { lat, lng } : null
+  }
+
+  const searchPlace = async (query: string): Promise<Position | null> => {
+    const trimmedQuery = query.trim()
+    if (!trimmedQuery) {
+      setGeneralErrorMessage('住所・駅名・施設名を入力してください。')
+      return null
+    }
+
+    let result: Position | null = null
+    if (looksLikeJapaneseAddress(trimmedQuery)) {
+      try {
+        result = await searchGsiAddress(trimmedQuery)
+      } catch (error) {
+        console.warn('国土地理院の住所検索を利用できませんでした。', error)
+      }
+    }
+
+    if (!result) result = await searchNominatim(trimmedQuery)
+    if (!result && !looksLikeJapaneseAddress(trimmedQuery)) {
+      try {
+        result = await searchGsiAddress(trimmedQuery)
+      } catch (error) {
+        console.warn('国土地理院の検索を利用できませんでした。', error)
+      }
+    }
+
+    if (!result) {
       setGeneralErrorMessage(`検索結果がありません: ${trimmedQuery}`)
       return null
     }
-    return { lat: Number(results[0].lat), lng: Number(results[0].lon) }
+    return result
   }
 
   const searchStart = async () => {
@@ -933,7 +975,7 @@ function App() {
               onKeyDown={(event) => {
                 if (event.key === 'Enter' && !loadingStartSearch) void searchStart()
               }}
-              placeholder="出発地を入力"
+              placeholder="住所・駅名・施設名を入力"
             />
             <div className="button-row">
               <button className="button button--secondary" type="button" onClick={searchStart} disabled={loadingStartSearch}>
@@ -955,7 +997,7 @@ function App() {
               onKeyDown={(event) => {
                 if (event.key === 'Enter' && !loadingDestinationSearch) void searchDestination()
               }}
-              placeholder="目的地を入力"
+              placeholder="住所・駅名・施設名を入力"
             />
             <button className="button button--secondary" type="button" onClick={searchDestination} disabled={loadingDestinationSearch}>
               {loadingDestinationSearch ? '検索中...' : '目的地を検索'}
