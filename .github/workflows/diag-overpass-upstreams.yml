@@ -15,15 +15,15 @@ jobs:
           set -u
           QUERY='[out:json][timeout:10];node["highway"="traffic_signals"](35.695,139.80,35.70,139.82);out body 1;'
           for URL in \
-            'https://overpass.openstreetmap.jp/api/interpreter' \
-            'https://overpass.private.coffee/api/interpreter' \
-            'https://overpass-api.de/api/interpreter' \
+            'https://overpass.osm.jp/api/interpreter' \
+            'https://lz4.overpass-api.de/api/interpreter' \
+            'https://z.overpass-api.de/api/interpreter' \
             'https://maps.mail.ru/osm/tools/overpass/api/interpreter'
           do
             echo "=== $URL ==="
-            CODE=$(curl -sS --max-time 20 -o /tmp/overpass-body.txt -w '%{http_code}' \
+            rm -f /tmp/overpass-body.txt
+            CODE=$(curl -sS --max-time 20 --compressed -o /tmp/overpass-body.txt -w '%{http_code}' \
               -H 'Accept: application/json' \
-              -H 'Accept-Encoding: gzip, deflate' \
               -H 'User-Agent: traffic-map/1.0 (https://traffic-map-delta.vercel.app)' \
               -H 'Referer: https://traffic-map-delta.vercel.app/' \
               --data-urlencode "data=$QUERY" \
