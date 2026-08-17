@@ -46,7 +46,7 @@ type FetchTrafficSignalsOptions = {
 }
 
 export const SIGNAL_CORRIDOR_RADIUS_METERS = 50
-export const OVERPASS_REQUEST_TIMEOUT_MS = 12_000
+export const OVERPASS_REQUEST_TIMEOUT_MS = 29_000
 
 const ROUTE_SIMPLIFY_TOLERANCE_METERS = 10
 const MAX_POINTS_PER_AROUND_CLAUSE = 100
@@ -58,11 +58,7 @@ const reverseWardCache = new Map<string, string | null>()
 let lastNominatimRequestStartedAt = 0
 let nominatimQueue: Promise<void> = Promise.resolve()
 
-export const OVERPASS_ENDPOINTS = [
-  'https://overpass-api.de/api/interpreter',
-  'https://overpass.private.coffee/api/interpreter',
-  'https://maps.mail.ru/osm/tools/overpass/api/interpreter',
-] as const
+export const OVERPASS_ENDPOINTS = ['/api/overpass'] as const
 
 class NonRetryableOverpassError extends Error {}
 
