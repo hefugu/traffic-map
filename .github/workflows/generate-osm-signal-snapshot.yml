@@ -41,7 +41,7 @@ jobs:
           source_url = 'https://download.geofabrik.de/asia/japan/kanto-latest.osm.pbf'
           try:
               osm_timestamp = subprocess.check_output(
-                  ['osmium', 'fileinfo', '-g', 'data.timestamp.last', '/tmp/kanto.osm.pbf'],
+                  ['osmium', 'fileinfo', '-e', '-g', 'data.timestamp.last', '/tmp/kanto.osm.pbf'],
                   text=True,
               ).strip()
           except Exception:
@@ -49,8 +49,8 @@ jobs:
 
           signals = []
           for _event, elem in ET.iterparse('/tmp/signals.osm', events=('end',)):
+              # Do not clear child <tag> elements before their parent <node> is handled.
               if elem.tag != 'node':
-                  elem.clear()
                   continue
               try:
                   node_id = int(elem.attrib['id'])
@@ -102,6 +102,8 @@ jobs:
               json.dump(payload, f, ensure_ascii=False, separators=(',', ':'))
           print(f'wrote {len(signals)} signal nodes to {path}')
           print(f'OSM timestamp: {osm_timestamp}')
+          if len(signals) < 1000:
+              raise SystemExit(f'Unexpectedly small signal snapshot: {len(signals)} nodes')
           PY
           ls -lh frontend/public/data/osm-traffic-signals-tokyo.json
       - name: Commit generated snapshot
