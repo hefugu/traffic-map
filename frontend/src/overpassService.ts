@@ -39,8 +39,6 @@ type NominatimReverseResponse = {
   address?: unknown
 }
 
-type CompactSignalRow = [number, number, number, number]
-
 type OsmSignalSnapshot = {
   schemaVersion: number
   source?: string

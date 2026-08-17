@@ -34,7 +34,7 @@ import {
 } from './signalTiming'
 
 type SignalDisplayMode = 'routeOnly' | 'all'
-type SignalFetchStatus = 'idle' | 'loading' | 'success' | 'error'
+type SignalFetchStatus = 'idle' | 'loading' | 'success' | 'snapshot' | 'error'
 type StartMode = 'gps' | 'manual'
 
 type TrafficSignal = {
@@ -644,6 +644,8 @@ function App() {
     try {
       const fetchedSignals = await fetchTrafficSignalsAroundRoutes(routes, { signal: controller.signal })
       if (requestId !== signalRequestIdRef.current || controller.signal.aborted) return
+      const snapshotSignal = fetchedSignals.find((signal) => signal.positionSource === 'osm-snapshot')
+      const snapshotDate = snapshotSignal?.snapshotTimestamp?.slice(0, 10)
 
       const resolvedSignals: TrafficSignal[] = fetchedSignals.map((signal) => ({
         ...signal,
@@ -662,7 +664,13 @@ function App() {
       setSignals(resolvedSignals)
       setRouteEvaluations(signalAwareEvaluations)
       setRouteInfo(signalAwareEvaluations[0].route)
-      setSignalFetchStatus('success')
+      if (snapshotSignal) {
+        setSignalFetchStatus('snapshot')
+        setSignalErrorMessage(`信号位置はOpenStreetMapの保存データ${snapshotDate ? `（${snapshotDate}時点）` : ''}を使用しています。周期は実測値・地域平均を適用しています。`)
+      } else {
+        setSignalFetchStatus('success')
+        setSignalErrorMessage('')
+      }
     } catch (error) {
       if (requestId !== signalRequestIdRef.current || controller.signal.aborted) return
       console.error(error)
@@ -846,13 +854,15 @@ function App() {
   const defaultExpectedDelaySeconds = getExpectedSignalDelay(DEFAULT_SIGNAL_TIMING)
   const defaultRedSeconds = getSignalRedSeconds(DEFAULT_SIGNAL_TIMING)
   const loadingSignals = signalFetchStatus === 'loading'
-  const signalEvaluationReady = signalFetchStatus === 'success'
+  const signalEvaluationReady = signalFetchStatus === 'success' || signalFetchStatus === 'snapshot'
   const routeButtonDisabled = loadingRoute || !startPosition || !destinationPosition
   const signalFetchStatusLabel = signalFetchStatus === 'loading'
     ? '取得中'
     : signalFetchStatus === 'success'
       ? '取得完了'
-      : signalFetchStatus === 'error'
+      : signalFetchStatus === 'snapshot'
+        ? 'OSM保存データ'
+        : signalFetchStatus === 'error'
         ? '取得失敗'
         : candidateRoutes.length > 0
           ? '取得待ち'
@@ -978,7 +988,7 @@ function App() {
                 <div className="route-summary-time">{formatMinutes(estimatedRouteSeconds)}</div>
               </div>
               <span className="route-summary-chip">
-                {signalEvaluationReady ? '信号評価済み' : '信号未反映'}
+                {signalFetchStatus === 'snapshot' ? 'OSM保存データ' : signalEvaluationReady ? '信号評価済み' : '信号未反映'}
               </span>
             </div>
             <div className="metrics-grid">
@@ -1150,7 +1160,7 @@ function App() {
               <div className="legend-row"><span className="legend-swatch legend-swatch--source-green" />横断なし</div>
               <div className="legend-row">待○%：状態確率</div>
               <div className="legend-row legend-row--wide">青線：採用ルート / 数字：信号数</div>
-              <div className="legend-row legend-row--wide">ピン：GPS（青）・出発（緑）・目的地（橙）</div>
+              <div className="legend-row legend-row--wide">ピン：出発（緑）・目的地（橙）</div>
             </div>
             <p className="legend-note">
               <span>個別同期：手動観測を基準とした推定。</span>
