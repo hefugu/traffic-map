@@ -1,6 +1,7 @@
 import { setCurrentRouteWardHint } from './signalRegion'
 
 export type SignalType = 'pedestrian' | 'vehicle' | 'both' | 'unknown'
+export type SignalPositionSource = 'live-osm' | 'osm-snapshot'
 
 export type OsmTrafficSignal = {
   id: number
@@ -8,6 +9,8 @@ export type OsmTrafficSignal = {
   lng: number
   type: SignalType
   source: string
+  positionSource?: SignalPositionSource
+  snapshotTimestamp?: string
 }
 
 type Position = {
@@ -36,6 +39,21 @@ type NominatimReverseResponse = {
   address?: unknown
 }
 
+type OsmSignalSnapshot = {
+  schemaVersion: number
+  source?: string
+  sourceUrl?: string
+  osmDataTimestamp?: string | null
+  bounds: {
+    west: number
+    south: number
+    east: number
+    north: number
+  }
+  signalCount?: number
+  signals: unknown[]
+}
+
 type FetchLike = (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>
 
 type FetchTrafficSignalsOptions = {
@@ -47,6 +65,7 @@ type FetchTrafficSignalsOptions = {
 
 export const SIGNAL_CORRIDOR_RADIUS_METERS = 50
 export const OVERPASS_REQUEST_TIMEOUT_MS = 29_000
+export const OSM_SIGNAL_SNAPSHOT_URL = '/data/osm-traffic-signals-tokyo.json'
 
 const ROUTE_SIMPLIFY_TOLERANCE_METERS = 10
 const MAX_POINTS_PER_AROUND_CLAUSE = 100
@@ -57,6 +76,7 @@ const RETRYABLE_OVERPASS_STATUSES = new Set([406, 408, 429, 500, 502, 503, 504])
 const reverseWardCache = new Map<string, string | null>()
 let lastNominatimRequestStartedAt = 0
 let nominatimQueue: Promise<void> = Promise.resolve()
+let osmSignalSnapshotPromise: Promise<OsmSignalSnapshot> | null = null
 
 export const OVERPASS_ENDPOINTS = ['/api/overpass'] as const
 
@@ -64,6 +84,10 @@ class NonRetryableOverpassError extends Error {}
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null
+}
+
+function isFiniteNumber(value: unknown): value is number {
+  return typeof value === 'number' && Number.isFinite(value)
 }
 
 function delay(milliseconds: number) {
@@ -168,6 +192,17 @@ function distancePointToSegmentMeters(point: Position, start: Position, end: Pos
   return Math.hypot(p.x - closestX, p.y - closestY)
 }
 
+function distanceToRouteMeters(point: Position, coordinates: readonly Position[]) {
+  if (coordinates.length === 0) return Infinity
+  if (coordinates.length === 1) return distancePointToSegmentMeters(point, coordinates[0], coordinates[0])
+  let shortest = Infinity
+  for (let index = 0; index < coordinates.length - 1; index += 1) {
+    const distance = distancePointToSegmentMeters(point, coordinates[index], coordinates[index + 1])
+    if (distance < shortest) shortest = distance
+  }
+  return shortest
+}
+
 function simplifyRoute(coordinates: readonly Position[]): Position[] {
   if (coordinates.length <= 2) return [...coordinates]
 
@@ -201,6 +236,143 @@ function chunkRoute(coordinates: readonly Position[]) {
     chunks.push(simplified.slice(start, start + MAX_POINTS_PER_AROUND_CLAUSE))
   }
   return chunks
+}
+
+function parseSnapshotBounds(value: unknown): OsmSignalSnapshot['bounds'] | null {
+  if (!isRecord(value)) return null
+  const { west, south, east, north } = value
+  if (!isFiniteNumber(west) || !isFiniteNumber(south) || !isFiniteNumber(east) || !isFiniteNumber(north)) return null
+  if (west >= east || south >= north) return null
+  return { west, south, east, north }
+}
+
+function parseOsmSignalSnapshot(value: unknown): OsmSignalSnapshot {
+  if (!isRecord(value) || value.schemaVersion !== 2 || !Array.isArray(value.signals)) {
+    throw new Error('OSM信号スナップショットの形式が不正です。')
+  }
+  const bounds = parseSnapshotBounds(value.bounds)
+  if (!bounds) throw new Error('OSM信号スナップショットの範囲情報が不正です。')
+  return {
+    schemaVersion: 2,
+    source: typeof value.source === 'string' ? value.source : undefined,
+    sourceUrl: typeof value.sourceUrl === 'string' ? value.sourceUrl : undefined,
+    osmDataTimestamp: typeof value.osmDataTimestamp === 'string' ? value.osmDataTimestamp : null,
+    bounds,
+    signalCount: typeof value.signalCount === 'number' ? value.signalCount : undefined,
+    signals: value.signals,
+  }
+}
+
+async function loadOsmSignalSnapshot() {
+  if (!osmSignalSnapshotPromise) {
+    osmSignalSnapshotPromise = fetch(OSM_SIGNAL_SNAPSHOT_URL, {
+      headers: { Accept: 'application/json' },
+      cache: 'force-cache',
+    })
+      .then(async (response) => {
+        if (!response.ok) throw new Error(`OSM signal snapshot error: ${response.status}`)
+        return parseOsmSignalSnapshot(await response.json())
+      })
+      .catch((error) => {
+        osmSignalSnapshotPromise = null
+        throw error
+      })
+  }
+  return osmSignalSnapshotPromise
+}
+
+function snapshotCoversRoutes(snapshot: OsmSignalSnapshot, routes: readonly RouteGeometry[]) {
+  const { west, south, east, north } = snapshot.bounds
+  return routes.every((route) => route.coordinates.every(
+    (position) => position.lng >= west && position.lng <= east && position.lat >= south && position.lat <= north,
+  ))
+}
+
+function getExpandedRouteBounds(routes: readonly RouteGeometry[]) {
+  const coordinates = routes.flatMap((route) => [...route.coordinates])
+  if (coordinates.length === 0) return null
+  let west = Infinity
+  let east = -Infinity
+  let south = Infinity
+  let north = -Infinity
+  let latitudeTotal = 0
+  for (const position of coordinates) {
+    west = Math.min(west, position.lng)
+    east = Math.max(east, position.lng)
+    south = Math.min(south, position.lat)
+    north = Math.max(north, position.lat)
+    latitudeTotal += position.lat
+  }
+  const referenceLat = (latitudeTotal / coordinates.length) * (Math.PI / 180)
+  const latPadding = SIGNAL_CORRIDOR_RADIUS_METERS / 111_320
+  const lngPadding = SIGNAL_CORRIDOR_RADIUS_METERS / (111_320 * Math.max(0.1, Math.cos(referenceLat)))
+  return {
+    west: west - lngPadding,
+    east: east + lngPadding,
+    south: south - latPadding,
+    north: north + latPadding,
+  }
+}
+
+function decodeSnapshotSignalRow(value: unknown, snapshotTimestamp?: string | null): OsmTrafficSignal | null {
+  if (!Array.isArray(value) || value.length < 4) return null
+  const [id, lat, lng, typeCode] = value
+  if (!Number.isSafeInteger(id) || !isFiniteNumber(lat) || !isFiniteNumber(lng) || !Number.isInteger(typeCode)) return null
+
+  let type: SignalType = 'unknown'
+  let source = 'unknown'
+  if (typeCode === 0) {
+    type = 'vehicle'
+    source = 'highway=traffic_signals'
+  } else if (typeCode === 1) {
+    type = 'pedestrian'
+    source = 'crossing=traffic_signals'
+  } else if (typeCode === 2) {
+    type = 'both'
+    source = 'highway=traffic_signals + crossing=traffic_signals'
+  }
+
+  return {
+    id,
+    lat,
+    lng,
+    type,
+    source,
+    positionSource: 'osm-snapshot',
+    snapshotTimestamp: snapshotTimestamp ?? undefined,
+  }
+}
+
+async function getSnapshotSignalsAroundRoutes(routes: readonly RouteGeometry[], signal?: AbortSignal) {
+  const snapshot = await loadOsmSignalSnapshot()
+  signal?.throwIfAborted()
+  if (!snapshotCoversRoutes(snapshot, routes)) {
+    throw new Error('ルートがOSM信号スナップショットの収録範囲外です。')
+  }
+
+  const routeBounds = getExpandedRouteBounds(routes)
+  if (!routeBounds) return []
+  const simplifiedRoutes = routes
+    .map((route) => simplifyRoute(route.coordinates))
+    .filter((coordinates) => coordinates.length > 0)
+  const matches: OsmTrafficSignal[] = []
+
+  for (const row of snapshot.signals) {
+    const decoded = decodeSnapshotSignalRow(row, snapshot.osmDataTimestamp)
+    if (!decoded) continue
+    if (
+      decoded.lng < routeBounds.west || decoded.lng > routeBounds.east
+      || decoded.lat < routeBounds.south || decoded.lat > routeBounds.north
+    ) {
+      continue
+    }
+    const nearRoute = simplifiedRoutes.some(
+      (coordinates) => distanceToRouteMeters(decoded, coordinates) <= SIGNAL_CORRIDOR_RADIUS_METERS,
+    )
+    if (nearRoute) matches.push(decoded)
+  }
+
+  return matches
 }
 
 export function buildTrafficSignalQuery(routes: readonly RouteGeometry[]) {
@@ -265,6 +437,7 @@ function parseTrafficSignals(data: OverpassResponse) {
       lng: element.lon,
       type,
       source,
+      positionSource: 'live-osm',
     })
   }
   return [...signalsByOsmId.values()]
@@ -278,16 +451,33 @@ export async function fetchTrafficSignalsAroundRoutes(
   routes: readonly RouteGeometry[],
   options: FetchTrafficSignalsOptions = {},
 ): Promise<OsmTrafficSignal[]> {
+  const routeWardPromise = options.fetchImpl
+    ? Promise.resolve<string | null>(null)
+    : resolveCommonRouteWard(routes, options.signal)
+
+  setCurrentRouteWardHint(null)
+
+  // Production/default path: use the bundled OSM snapshot first. This avoids making
+  // route calculation depend on public Overpass instance availability or browser CORS.
+  // Custom fetch/endpoints keep the live path for tests and explicit callers.
+  if (!options.fetchImpl && options.endpoints === undefined) {
+    try {
+      const snapshotSignals = await getSnapshotSignalsAroundRoutes(routes, options.signal)
+      const routeWard = await routeWardPromise
+      options.signal?.throwIfAborted()
+      setCurrentRouteWardHint(routeWard)
+      return snapshotSignals
+    } catch (error) {
+      if (options.signal?.aborted) throw error
+      console.warn('OSM信号スナップショットを使用できないため、Overpassへフォールバックします。', error)
+    }
+  }
+
   const query = buildTrafficSignalQuery(routes)
   const endpoints = options.endpoints ?? OVERPASS_ENDPOINTS
   const requestTimeoutMs = options.requestTimeoutMs ?? OVERPASS_REQUEST_TIMEOUT_MS
   const fetchImpl = options.fetchImpl ?? fetch
-  const routeWardPromise = options.fetchImpl
-    ? Promise.resolve<string | null>(null)
-    : resolveCommonRouteWard(routes, options.signal)
   let lastError: Error | null = null
-
-  setCurrentRouteWardHint(null)
 
   for (const endpoint of endpoints) {
     options.signal?.throwIfAborted()
