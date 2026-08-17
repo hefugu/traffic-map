@@ -1,3 +1,5 @@
+import { setCurrentRouteWardHint } from './signalRegion'
+
 export type SignalType = 'pedestrian' | 'vehicle' | 'both' | 'unknown'
 
 export type OsmTrafficSignal = {
@@ -29,6 +31,11 @@ type OverpassResponse = {
   remark?: unknown
 }
 
+type NominatimReverseResponse = {
+  display_name?: unknown
+  address?: unknown
+}
+
 type FetchLike = (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>
 
 type FetchTrafficSignalsOptions = {
@@ -44,7 +51,12 @@ export const OVERPASS_REQUEST_TIMEOUT_MS = 12_000
 const ROUTE_SIMPLIFY_TOLERANCE_METERS = 10
 const MAX_POINTS_PER_AROUND_CLAUSE = 100
 const OVERPASS_QUERY_TIMEOUT_SECONDS = 10
+const NOMINATIM_MIN_REQUEST_INTERVAL_MS = 1_050
+const TOKYO_WARD_PATTERN = /^[^\s,]{1,12}区$/
 const RETRYABLE_OVERPASS_STATUSES = new Set([406, 408, 429, 500, 502, 503, 504])
+const reverseWardCache = new Map<string, string | null>()
+let lastNominatimRequestStartedAt = 0
+let nominatimQueue: Promise<void> = Promise.resolve()
 
 export const OVERPASS_ENDPOINTS = [
   'https://overpass-api.de/api/interpreter',
@@ -56,6 +68,87 @@ class NonRetryableOverpassError extends Error {}
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null
+}
+
+function delay(milliseconds: number) {
+  return new Promise<void>((resolve) => globalThis.setTimeout(resolve, milliseconds))
+}
+
+function enqueueNominatimRequest<T>(request: () => Promise<T>): Promise<T> {
+  const queued = nominatimQueue.then(async () => {
+    const waitMilliseconds = Math.max(
+      0,
+      NOMINATIM_MIN_REQUEST_INTERVAL_MS - (Date.now() - lastNominatimRequestStartedAt),
+    )
+    if (waitMilliseconds > 0) await delay(waitMilliseconds)
+    lastNominatimRequestStartedAt = Date.now()
+    return request()
+  })
+  nominatimQueue = queued.then(() => undefined, () => undefined)
+  return queued
+}
+
+function getReverseWardCacheKey(position: Position) {
+  return `${position.lat.toFixed(3)},${position.lng.toFixed(3)}`
+}
+
+function extractTokyoWard(data: NominatimReverseResponse) {
+  const address = isRecord(data.address) ? data.address : {}
+  const addressValues = Object.values(address).filter((value): value is string => typeof value === 'string')
+  const displayName = typeof data.display_name === 'string' ? data.display_name : ''
+  const context = [displayName, ...addressValues].join(',')
+  if (!context.includes('東京都') && !/\bTokyo\b/i.test(context)) return null
+
+  const preferredKeys = ['city_district', 'city', 'municipality', 'borough', 'county', 'suburb']
+  for (const key of preferredKeys) {
+    const value = address[key]
+    if (typeof value === 'string' && TOKYO_WARD_PATTERN.test(value)) return value
+  }
+  return addressValues.find((value) => TOKYO_WARD_PATTERN.test(value)) ?? null
+}
+
+async function reverseGeocodeTokyoWard(position: Position, signal?: AbortSignal) {
+  const cacheKey = getReverseWardCacheKey(position)
+  if (reverseWardCache.has(cacheKey)) return reverseWardCache.get(cacheKey) ?? null
+
+  return enqueueNominatimRequest(async () => {
+    if (reverseWardCache.has(cacheKey)) return reverseWardCache.get(cacheKey) ?? null
+    signal?.throwIfAborted()
+    const params = new URLSearchParams({
+      format: 'jsonv2',
+      lat: position.lat.toFixed(7),
+      lon: position.lng.toFixed(7),
+      addressdetails: '1',
+      'accept-language': 'ja',
+    })
+    const response = await fetch(`https://nominatim.openstreetmap.org/reverse?${params.toString()}`, {
+      headers: { Accept: 'application/json' },
+      signal,
+    })
+    if (!response.ok) throw new Error(`Nominatim reverse API error: ${response.status}`)
+    const data = (await response.json()) as NominatimReverseResponse
+    const ward = extractTokyoWard(data)
+    reverseWardCache.set(cacheKey, ward)
+    return ward
+  })
+}
+
+async function resolveCommonRouteWard(routes: readonly RouteGeometry[], signal?: AbortSignal) {
+  const route = routes.find((candidate) => candidate.coordinates.length > 0)
+  if (!route) return null
+  const start = route.coordinates[0]
+  const destination = route.coordinates[route.coordinates.length - 1]
+
+  try {
+    const startWard = await reverseGeocodeTokyoWard(start, signal)
+    if (!startWard) return null
+    const destinationWard = await reverseGeocodeTokyoWard(destination, signal)
+    return destinationWard === startWard ? startWard : null
+  } catch (error) {
+    if (signal?.aborted) throw error
+    console.warn('行政区を判定できなかったため、信号周期は全体平均へフォールバックします。', error)
+    return null
+  }
 }
 
 function distancePointToSegmentMeters(point: Position, start: Position, end: Position) {
@@ -193,7 +286,12 @@ export async function fetchTrafficSignalsAroundRoutes(
   const endpoints = options.endpoints ?? OVERPASS_ENDPOINTS
   const requestTimeoutMs = options.requestTimeoutMs ?? OVERPASS_REQUEST_TIMEOUT_MS
   const fetchImpl = options.fetchImpl ?? fetch
+  const routeWardPromise = options.fetchImpl
+    ? Promise.resolve<string | null>(null)
+    : resolveCommonRouteWard(routes, options.signal)
   let lastError: Error | null = null
+
+  setCurrentRouteWardHint(null)
 
   for (const endpoint of endpoints) {
     options.signal?.throwIfAborted()
@@ -239,8 +337,13 @@ export async function fetchTrafficSignalsAroundRoutes(
       }
 
       try {
-        return parseTrafficSignals(overpassData)
+        const parsedSignals = parseTrafficSignals(overpassData)
+        const routeWard = await routeWardPromise
+        options.signal?.throwIfAborted()
+        setCurrentRouteWardHint(routeWard)
+        return parsedSignals
       } catch (error) {
+        if (options.signal?.aborted) throw error
         lastError = asError(error)
       }
     } catch (error) {
@@ -253,6 +356,7 @@ export async function fetchTrafficSignalsAroundRoutes(
     }
   }
 
+  setCurrentRouteWardHint(null)
   throw new Error('すべてのOverpass API接続先で信号情報を取得できませんでした。', {
     cause: lastError ?? undefined,
   })
