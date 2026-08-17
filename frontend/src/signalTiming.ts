@@ -1,4 +1,5 @@
 import { MEASURED_SIGNAL_PROFILES, type MeasuredSignalProfile } from './measuredSignalTimings'
+import { getCurrentRouteWardHint } from './signalRegion'
 
 export type SignalTiming = {
   cycleSeconds: number
@@ -148,11 +149,13 @@ function normalizeLookup(input: SignalTimingLookup | number, legacyLng?: number)
 // Resolution order:
 // 1. positively verified OSM node ID
 // 2. nearby measured intersection
-// 3. same-ward average when the caller has a trustworthy ward hint
+// 3. same-ward average when the caller or current route has a trustworthy ward hint
 // 4. average of all currently measured intersections
 //
-// A ward is never inferred merely from proximity to another ward's sample. This keeps
-// locations such as Kinshicho or Tokyo Station from being mislabeled as Koto-ku data.
+// A ward is never inferred merely from proximity to another ward's sample. The
+// route-level hint is only set when reverse geocoding identifies the same Tokyo ward
+// at both route endpoints. This prevents places such as Kinshicho or Tokyo Station
+// from being mislabeled as Koto-ku data.
 export function resolveSignalTiming(input: SignalTimingLookup | number, legacyLng?: number): ResolvedSignalTiming {
   const lookup = normalizeLookup(input, legacyLng)
 
@@ -181,18 +184,19 @@ export function resolveSignalTiming(input: SignalTimingLookup | number, legacyLn
     return resolveMeasuredProfile(nearest.profile, 'nearby', nearest.distance)
   }
 
-  if (lookup.ward) {
+  const ward = lookup.ward ?? getCurrentRouteWardHint()
+  if (ward) {
     const regionalProfiles = MEASURED_SIGNAL_PROFILES.filter(
-      (profile) => profile.ward === lookup.ward && profile.crossings.length > 0,
+      (profile) => profile.ward === ward && profile.crossings.length > 0,
     )
     const regionalTiming = getAverageTiming(regionalProfiles)
     if (regionalTiming) {
       return {
         timing: regionalTiming,
         source: 'measured-average',
-        label: `${lookup.ward} 実測平均`,
+        label: `${ward} 実測平均`,
         noPedestrianCrossing: false,
-        ward: lookup.ward,
+        ward,
         averageScope: 'regional',
         matchMethod: 'regional-average',
       }
