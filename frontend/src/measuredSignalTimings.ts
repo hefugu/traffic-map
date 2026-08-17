@@ -1,3 +1,5 @@
+import { GENERATED_MEASURED_SIGNAL_PROFILES } from './measuredSignalTimings.generated'
+
 export type MeasuredCrossingTiming = {
   greenSeconds: number
   blinkSeconds: number
@@ -20,9 +22,13 @@ export type MeasuredSignalProfile = {
 // Signal timings can change by weekday, time of day and traffic control,
 // so these values are treated as measured reference data rather than live phase data.
 //
+// The hand-curated entries below are kept as the preferred versions for their source
+// articles. The generated dataset adds only other articles that passed conservative
+// table/cycle consistency checks, so source URLs are never duplicated.
+//
 // osmNodeIds is intentionally optional. Only IDs that have been positively verified
 // against OpenStreetMap should be added; unknown IDs must not be guessed.
-export const MEASURED_SIGNAL_PROFILES: MeasuredSignalProfile[] = [
+const MANUAL_MEASURED_SIGNAL_PROFILES: MeasuredSignalProfile[] = [
   {
     name: '東京ビッグサイト東',
     lat: 35.6343019,
@@ -180,4 +186,9 @@ export const MEASURED_SIGNAL_PROFILES: MeasuredSignalProfile[] = [
     sourceUrl: 'https://www.shingou-saikuru.com/2020/10/fukagawa-akatsukibashi-s.html',
     note: '歩車分離式。交差点中心座標を未確定のため自動位置マッチ対象外。',
   },
+]
+
+export const MEASURED_SIGNAL_PROFILES: MeasuredSignalProfile[] = [
+  ...MANUAL_MEASURED_SIGNAL_PROFILES,
+  ...GENERATED_MEASURED_SIGNAL_PROFILES,
 ]
