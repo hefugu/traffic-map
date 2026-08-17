@@ -1,0 +1,90 @@
+name: Apply facility search fix
+
+on:
+  push:
+    branches:
+      - fix/facility-search-routing
+
+permissions:
+  contents: write
+
+jobs:
+  patch-and-validate:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - name: Patch facility/address routing
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          path = Path('frontend/src/App.tsx')
+          text = path.read_text(encoding='utf-8')
+
+          def replace_once(old, new):
+              global text
+              count = text.count(old)
+              if count != 1:
+                  raise SystemExit(f'Expected exactly one match, got {count}: {old[:120]!r}')
+              text = text.replace(old, new, 1)
+
+          replace_once(
+              "  const looksLikeJapaneseAddress = (query: string) => {\n    const normalized = query.replace(/[０-９]/g, (digit) => String.fromCharCode(digit.charCodeAt(0) - 0xFEE0))\n    return /(?:〒?\\d{3}-?\\d{4}|[都道府県市区町村丁目番地号]|\\d+[ー−–—-]\\d+)/.test(normalized)\n  }",
+              "  const looksLikeJapaneseAddress = (query: string) => {\n    const normalized = query\n      .normalize('NFKC')\n      .replace(/[−–—ー]/g, '-')\n    const hasPostalCode = /〒?\\s*\\d{3}-?\\d{4}/.test(normalized)\n    const hasNumberedAddressPart = /(?:\\d+|[一二三四五六七八九十百]+)\\s*(?:丁目|番地?|号)/.test(normalized)\n    const hasAdministrativeAreaAndStreetNumber = /[都道府県市区町村].*(?:\\d+|[一二三四五六七八九十百]+)\\s*-\\s*\\d+/.test(normalized)\n    return hasPostalCode || hasNumberedAddressPart || hasAdministrativeAreaAndStreetNumber\n  }",
+          )
+
+          replace_once(
+              "    const params = new URLSearchParams({ format: 'jsonv2', q: query, countrycodes: 'jp', limit: '1', 'accept-language': 'ja' })\n    const response = await fetch(`https://nominatim.openstreetmap.org/search?${params.toString()}`)\n    if (!response.ok) throw new Error(`Nominatim API error: ${response.status}`)\n    const results = (await response.json()) as NominatimResult[]\n    if (results.length === 0) return null\n    const lat = Number(results[0].lat)\n    const lng = Number(results[0].lon)\n    return Number.isFinite(lat) && Number.isFinite(lng) ? { lat, lng } : null",
+              "    const params = new URLSearchParams({ format: 'jsonv2', q: query, countrycodes: 'jp', limit: '5', 'accept-language': 'ja' })\n    const response = await fetch(`https://nominatim.openstreetmap.org/search?${params.toString()}`)\n    if (!response.ok) throw new Error(`Nominatim API error: ${response.status}`)\n    const results = (await response.json()) as NominatimResult[]\n    if (results.length === 0) return null\n    const normalizedQuery = query.normalize('NFKC').replace(/\\s+/g, '').toLowerCase()\n    const bestResult = results.find((result) =>\n      result.display_name.normalize('NFKC').replace(/\\s+/g, '').toLowerCase().includes(normalizedQuery),\n    ) ?? results[0]\n    const lat = Number(bestResult.lat)\n    const lng = Number(bestResult.lon)\n    return Number.isFinite(lat) && Number.isFinite(lng) ? { lat, lng } : null",
+          )
+
+          replace_once(
+              "    if (!result) result = await searchNominatim(trimmedQuery)\n    if (!result && !looksLikeJapaneseAddress(trimmedQuery)) {\n      try {\n        result = await searchGsiAddress(trimmedQuery)\n      } catch (error) {\n        console.warn('国土地理院の検索を利用できませんでした。', error)\n      }\n    }",
+              "    if (!result) result = await searchNominatim(trimmedQuery)",
+          )
+
+          path.write_text(text, encoding='utf-8')
+          PY
+      - run: npm --prefix frontend ci
+      - run: npm --prefix frontend run build
+      - run: npm --prefix frontend run lint
+      - name: Validate address classifier cases
+        run: |
+          node <<'JS'
+          const looksLikeJapaneseAddress = (query) => {
+            const normalized = query.normalize('NFKC').replace(/[−–—ー]/g, '-')
+            const hasPostalCode = /〒?\s*\d{3}-?\d{4}/.test(normalized)
+            const hasNumberedAddressPart = /(?:\d+|[一二三四五六七八九十百]+)\s*(?:丁目|番地?|号)/.test(normalized)
+            const hasAdministrativeAreaAndStreetNumber = /[都道府県市区町村].*(?:\d+|[一二三四五六七八九十百]+)\s*-\s*\d+/.test(normalized)
+            return hasPostalCode || hasNumberedAddressPart || hasAdministrativeAreaAndStreetNumber
+          }
+
+          const cases = [
+            ['東京都立科学技術高等学校', false],
+            ['東京都庁', false],
+            ['立川市役所', false],
+            ['東京駅', false],
+            ['江東区千石2丁目', true],
+            ['東京都江東区千石2-2-52', true],
+            ['〒135-0015 東京都江東区千石2-2-52', true],
+            ['江東区千石二丁目', true],
+          ]
+          for (const [input, expected] of cases) {
+            const actual = looksLikeJapaneseAddress(input)
+            if (actual !== expected) throw new Error(`${input}: expected ${expected}, got ${actual}`)
+          }
+          console.log('address classifier cases passed')
+          JS
+      - name: Commit validated fix
+        run: |
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add frontend/src/App.tsx
+          git commit -m 'Fix facility search classification'
+          git push
